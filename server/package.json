@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test --test-concurrency=1",
     "build": "node scripts/build.mjs",
     "prisma:validate": "prisma validate",
     "prisma:generate": "prisma generate",

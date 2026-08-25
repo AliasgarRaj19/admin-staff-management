@@ -49,6 +49,7 @@ test("schema keeps MasterAdmin isolated and audit logs retained", () => {
   assert.match(schema, /model StaffRole/);
   assert.match(schema, /model RolePermission/);
   assert.match(schema, /model StaffPermission/);
+  assert.doesNotMatch(staffAccountBlock, /isMasterAdmin/i);
   assert.match(schema, /actorStaffAccountId\s+String\?[^]*onDelete: SetNull/);
 });
 

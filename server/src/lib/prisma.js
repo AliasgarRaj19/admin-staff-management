@@ -163,6 +163,17 @@ function createApi(client) {
       );
       return mapStaffAccount(row);
     },
+    async updateMany({ where = {}, data }) {
+      const dataFields = Object.keys(data);
+      const dataValues = Object.values(data);
+      const dataSets = dataFields.map((field, index) => `"${field}" = $${index + 1}`).join(", ");
+      const { sql, params } = buildWhere(where, [...dataValues]);
+      const result = await client.query(
+        `UPDATE "StaffAccount" SET ${dataSets}${sql ? ` WHERE ${sql}` : ""}`,
+        params,
+      );
+      return { count: result.rowCount ?? 0 };
+    },
     async deleteMany({ where = {} }) {
       const { sql, params } = buildWhere(where);
       const result = await client.query(`DELETE FROM "StaffAccount"${sql ? ` WHERE ${sql}` : ""}`, params);

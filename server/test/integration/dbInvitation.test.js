@@ -43,7 +43,6 @@ dbTest("real DB invitation acceptance and audit trail", async () => {
       email: `${testPrefix}_master@example.com`,
       roleName: "Moderator",
       status: "active",
-      isMasterAdmin: false,
       firstName: null,
       lastName: null,
       phone: null,

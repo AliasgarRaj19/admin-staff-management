@@ -41,7 +41,6 @@ CREATE TABLE "StaffAccount" (
   "passwordHash" TEXT,
   "roleName" TEXT NOT NULL DEFAULT 'Moderator',
   "status" "staff_account_status" NOT NULL DEFAULT 'invited',
-  "isMasterAdmin" BOOLEAN NOT NULL DEFAULT false,
   "invitedAt" TIMESTAMP(3),
   "registeredAt" TIMESTAMP(3),
   "activatedAt" TIMESTAMP(3),
@@ -52,8 +51,6 @@ CREATE TABLE "StaffAccount" (
   CONSTRAINT "StaffAccount_pkey" PRIMARY KEY ("id")
 );
 CREATE UNIQUE INDEX "StaffAccount_email_key" ON "StaffAccount"("email");
-CREATE UNIQUE INDEX "StaffAccount_single_master_uidx" ON "StaffAccount"("isMasterAdmin") WHERE "isMasterAdmin" = true;
-
 CREATE TABLE "StaffRefreshToken" (
   "id" TEXT NOT NULL,
   "staffAccountId" TEXT NOT NULL,
