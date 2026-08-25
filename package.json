@@ -1,0 +1,11 @@
+{
+  "name": "admin-staff-management",
+  "private": true,
+  "workspaces": [
+    "server"
+  ],
+  "scripts": {
+    "test": "npm test -w server",
+    "build": "npm run build -w server"
+  }
+}

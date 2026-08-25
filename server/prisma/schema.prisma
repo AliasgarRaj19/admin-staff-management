@@ -1,0 +1,192 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum staff_account_status {
+  invited
+  active
+  blocked
+  removed
+}
+
+enum staff_invitation_status {
+  pending
+  accepted
+  revoked
+  expired
+}
+
+enum staff_password_reset_status {
+  pending
+  consumed
+  revoked
+  expired
+}
+
+model MasterAdmin {
+  id            String                     @id @default(cuid())
+  username      String                     @unique
+  email         String?                    @unique
+  passwordHash  String
+  status        String                     @default("active")
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+  refreshTokens MasterAdminRefreshToken[]
+}
+
+model MasterAdminRefreshToken {
+  id                String       @id @default(cuid())
+  masterAdminId     String
+  tokenHash         String       @unique
+  jti               String       @unique
+  familyId          String
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?      @unique
+  createdAt         DateTime     @default(now())
+  masterAdmin       MasterAdmin  @relation(fields: [masterAdminId], references: [id], onDelete: Cascade)
+}
+
+model StaffAccount {
+  id              String                     @id @default(cuid())
+  email           String                     @unique
+  name            String?
+  passwordHash    String?
+  roleName        String                     @default("Moderator")
+  status          staff_account_status       @default(invited)
+  isMasterAdmin   Boolean                    @default(false)
+  invitedAt       DateTime?
+  activatedAt     DateTime?
+  blockedAt       DateTime?
+  removedAt       DateTime?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  invitations     StaffInvitation[]          @relation("StaffInvitationAccount")
+  passwordResets  StaffPasswordReset[]       @relation("StaffPasswordResetAccount")
+  refreshTokens   StaffRefreshToken[]        @relation("StaffRefreshTokenAccount")
+  roles           StaffRole[]                @relation("StaffRoleAccount")
+  permissions     StaffPermission[]          @relation("StaffPermissionAccount")
+  grantedPermissions StaffPermission[]       @relation("StaffPermissionGrantor")
+  auditLogs       AuditLog[]                 @relation("AuditLogActor")
+}
+
+model StaffRefreshToken {
+  id                String       @id @default(cuid())
+  staffAccountId    String
+  tokenHash         String       @unique
+  jti               String       @unique
+  familyId          String
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?      @unique
+  createdAt         DateTime     @default(now())
+  staffAccount      StaffAccount @relation("StaffRefreshTokenAccount", fields: [staffAccountId], references: [id], onDelete: Cascade)
+}
+
+model StaffInvitation {
+  id              String                   @id @default(cuid())
+  staffAccountId  String?
+  email           String
+  tokenHash       String                   @unique
+  roleName        String?
+  status          staff_invitation_status   @default(pending)
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  staffAccount    StaffAccount?            @relation("StaffInvitationAccount", fields: [staffAccountId], references: [id], onDelete: Cascade)
+}
+
+model StaffPasswordReset {
+  id              String                      @id @default(cuid())
+  staffAccountId  String
+  tokenHash       String                      @unique
+  status          staff_password_reset_status  @default(pending)
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+  staffAccount    StaffAccount                @relation("StaffPasswordResetAccount", fields: [staffAccountId], references: [id], onDelete: Cascade)
+}
+
+model Role {
+  id          String          @id @default(cuid())
+  name        String          @unique
+  description String?
+  isSystem    Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  staffRoles  StaffRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique
+  displayName String
+  description String?
+  module      String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+  staff       StaffPermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId  String
+  createdAt     DateTime     @default(now())
+  role          Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission    Permission   @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model StaffRole {
+  staffAccountId String
+  roleId         String
+  createdAt      DateTime     @default(now())
+  staffAccount   StaffAccount @relation("StaffRoleAccount", fields: [staffAccountId], references: [id], onDelete: Cascade)
+  role           Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([staffAccountId, roleId])
+}
+
+model StaffPermission {
+  staffAccountId String
+  permissionId   String
+  grantedById    String?
+  createdAt      DateTime     @default(now())
+  staffAccount   StaffAccount @relation("StaffPermissionAccount", fields: [staffAccountId], references: [id], onDelete: Cascade)
+  permission     Permission   @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  grantedBy      StaffAccount? @relation("StaffPermissionGrantor", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@id([staffAccountId, permissionId])
+}
+
+model AuditLog {
+  id                 String        @id @default(cuid())
+  actorType          String
+  actorId            String?
+  actorStaffAccountId String?
+  action             String
+  resourceType       String?
+  resourceId         String?
+  result             String
+  metadata           Json?
+  ipAddress          String?
+  userAgent          String?
+  createdAt          DateTime      @default(now())
+  actorStaffAccount  StaffAccount? @relation("AuditLogActor", fields: [actorStaffAccountId], references: [id], onDelete: SetNull)
+
+  @@index([actorStaffAccountId, createdAt])
+  @@index([action, createdAt])
+  @@index([resourceType, resourceId])
+}
