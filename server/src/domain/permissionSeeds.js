@@ -2,6 +2,7 @@ import { canonicalPermissions, permissionModule } from "./permissions.js";
 
 export const canonicalPermissionSeeds = Object.freeze(
   canonicalPermissions.map((key) => ({
+    id: key,
     key,
     displayName: key
       .split(".")
@@ -10,5 +11,7 @@ export const canonicalPermissionSeeds = Object.freeze(
       .replace(/\b\w/g, (character) => character.toUpperCase()),
     description: null,
     module: permissionModule(key),
+    createdAt: new Date(),
+    updatedAt: new Date(),
   })),
 );

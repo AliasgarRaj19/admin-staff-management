@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-admin_staff_management}
+      POSTGRES_USER: ${POSTGRES_USER:-admin_staff_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin_staff_dev_password}
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin_staff_user} -d ${POSTGRES_DB:-admin_staff_management}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

@@ -1,13 +1,13 @@
-CREATE TYPE "staff_account_status" AS ENUM (''invited'', ''active'', ''blocked'', ''removed'');
-CREATE TYPE "staff_invitation_status" AS ENUM (''pending'', ''accepted'', ''revoked'', ''expired'');
-CREATE TYPE "staff_password_reset_status" AS ENUM (''pending'', ''consumed'', ''revoked'', ''expired'');
+CREATE TYPE "staff_account_status" AS ENUM ('invited', 'active', 'blocked', 'removed');
+CREATE TYPE "staff_invitation_status" AS ENUM ('pending', 'accepted', 'revoked', 'expired');
+CREATE TYPE "staff_password_reset_status" AS ENUM ('pending', 'consumed', 'revoked', 'expired');
 
 CREATE TABLE "MasterAdmin" (
   "id" TEXT NOT NULL,
   "username" TEXT NOT NULL,
   "email" TEXT,
   "passwordHash" TEXT NOT NULL,
-  "status" TEXT NOT NULL DEFAULT ''active'',
+  "status" TEXT NOT NULL DEFAULT 'active',
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "MasterAdmin_pkey" PRIMARY KEY ("id")
@@ -39,8 +39,8 @@ CREATE TABLE "StaffAccount" (
   "lastName" TEXT,
   "phone" TEXT,
   "passwordHash" TEXT,
-  "roleName" TEXT NOT NULL DEFAULT ''Moderator'',
-  "status" "staff_account_status" NOT NULL DEFAULT ''invited'',
+  "roleName" TEXT NOT NULL DEFAULT 'Moderator',
+  "status" "staff_account_status" NOT NULL DEFAULT 'invited',
   "isMasterAdmin" BOOLEAN NOT NULL DEFAULT false,
   "invitedAt" TIMESTAMP(3),
   "registeredAt" TIMESTAMP(3),
@@ -78,7 +78,7 @@ CREATE TABLE "StaffInvitation" (
   "tokenHash" TEXT NOT NULL,
   "roleName" TEXT,
   "invitedById" TEXT,
-  "status" "staff_invitation_status" NOT NULL DEFAULT ''pending'',
+  "status" "staff_invitation_status" NOT NULL DEFAULT 'pending',
   "expiresAt" TIMESTAMP(3) NOT NULL,
   "acceptedAt" TIMESTAMP(3),
   "revokedAt" TIMESTAMP(3),
@@ -95,7 +95,7 @@ CREATE TABLE "StaffPasswordReset" (
   "id" TEXT NOT NULL,
   "staffAccountId" TEXT NOT NULL,
   "tokenHash" TEXT NOT NULL,
-  "status" "staff_password_reset_status" NOT NULL DEFAULT ''pending'',
+  "status" "staff_password_reset_status" NOT NULL DEFAULT 'pending',
   "expiresAt" TIMESTAMP(3) NOT NULL,
   "consumedAt" TIMESTAMP(3),
   "revokedAt" TIMESTAMP(3),
@@ -178,3 +178,4 @@ CREATE INDEX "AuditLog_actorStaffAccountId_createdAt_idx" ON "AuditLog"("actorSt
 CREATE INDEX "AuditLog_action_createdAt_idx" ON "AuditLog"("action", "createdAt");
 CREATE INDEX "AuditLog_resourceType_resourceId_idx" ON "AuditLog"("resourceType", "resourceId");
 ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_actorStaffAccountId_fkey" FOREIGN KEY ("actorStaffAccountId") REFERENCES "StaffAccount"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
