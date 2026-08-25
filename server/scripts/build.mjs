@@ -9,6 +9,17 @@ const requiredFiles = [
   "src/domain/staff.js",
   "src/domain/permissions.js",
   "src/domain/audit.js",
+  "src/lib/token.js",
+  "src/lib/validation.js",
+  "src/lib/audit.js",
+  "src/lib/email.js",
+  "src/lib/password.js",
+  "src/lib/prisma.js",
+  "src/db/index.js",
+  "src/repositories/staffRepository.js",
+  "src/services/staffOnboarding.js",
+  "src/routes/adminStaff.js",
+  "src/routes/staffInvitations.js",
 ];
 
 const missing = requiredFiles.filter((relativePath) => !existsSync(join(root, relativePath)));

@@ -35,12 +35,15 @@ ALTER TABLE "MasterAdminRefreshToken" ADD CONSTRAINT "MasterAdminRefreshToken_ma
 CREATE TABLE "StaffAccount" (
   "id" TEXT NOT NULL,
   "email" TEXT NOT NULL,
-  "name" TEXT,
+  "firstName" TEXT,
+  "lastName" TEXT,
+  "phone" TEXT,
   "passwordHash" TEXT,
   "roleName" TEXT NOT NULL DEFAULT ''Moderator'',
   "status" "staff_account_status" NOT NULL DEFAULT ''invited'',
   "isMasterAdmin" BOOLEAN NOT NULL DEFAULT false,
   "invitedAt" TIMESTAMP(3),
+  "registeredAt" TIMESTAMP(3),
   "activatedAt" TIMESTAMP(3),
   "blockedAt" TIMESTAMP(3),
   "removedAt" TIMESTAMP(3),
@@ -74,6 +77,7 @@ CREATE TABLE "StaffInvitation" (
   "email" TEXT NOT NULL,
   "tokenHash" TEXT NOT NULL,
   "roleName" TEXT,
+  "invitedById" TEXT,
   "status" "staff_invitation_status" NOT NULL DEFAULT ''pending'',
   "expiresAt" TIMESTAMP(3) NOT NULL,
   "acceptedAt" TIMESTAMP(3),
@@ -85,6 +89,7 @@ CREATE TABLE "StaffInvitation" (
 CREATE UNIQUE INDEX "StaffInvitation_tokenHash_key" ON "StaffInvitation"("tokenHash");
 CREATE INDEX "StaffInvitation_email_idx" ON "StaffInvitation"("email");
 ALTER TABLE "StaffInvitation" ADD CONSTRAINT "StaffInvitation_staffAccountId_fkey" FOREIGN KEY ("staffAccountId") REFERENCES "StaffAccount"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "StaffInvitation" ADD CONSTRAINT "StaffInvitation_invitedById_fkey" FOREIGN KEY ("invitedById") REFERENCES "StaffAccount"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 CREATE TABLE "StaffPasswordReset" (
   "id" TEXT NOT NULL,

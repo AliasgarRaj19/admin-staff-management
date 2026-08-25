@@ -55,12 +55,15 @@ model MasterAdminRefreshToken {
 model StaffAccount {
   id              String                     @id @default(cuid())
   email           String                     @unique
-  name            String?
+  firstName       String?
+  lastName        String?
+  phone           String?
   passwordHash    String?
   roleName        String                     @default("Moderator")
   status          staff_account_status       @default(invited)
   isMasterAdmin   Boolean                    @default(false)
   invitedAt       DateTime?
+  registeredAt    DateTime?
   activatedAt     DateTime?
   blockedAt       DateTime?
   removedAt       DateTime?
