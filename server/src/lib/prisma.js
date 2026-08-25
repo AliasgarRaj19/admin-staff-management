@@ -63,6 +63,16 @@ function mapAudit(row) {
   };
 }
 
+function mapRefresh(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    expiresAt: toDate(row.expiresAt),
+    revokedAt: toDate(row.revokedAt),
+    createdAt: toDate(row.createdAt),
+  };
+}
+
 function mapSimpleCountRow(row) {
   return Number(row?.count ?? 0);
 }
@@ -238,6 +248,65 @@ function createApi(client) {
     },
   };
 
+  const staffRefreshToken = {
+    async findMany({ where = {} } = {}) {
+      const { sql, params } = buildWhere(where);
+      const rows = await queryAll(`SELECT * FROM "StaffRefreshToken"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return rows.map(mapRefresh);
+    },
+    async findUnique({ where }) {
+      if (where.tokenHash) {
+        return mapRefresh(await queryOne(`SELECT * FROM "StaffRefreshToken" WHERE "tokenHash" = $1 LIMIT 1`, [where.tokenHash]));
+      }
+      if (where.id) {
+        return mapRefresh(await queryOne(`SELECT * FROM "StaffRefreshToken" WHERE "id" = $1 LIMIT 1`, [where.id]));
+      }
+      return null;
+    },
+    async create({ data }) {
+      const payload = withGeneratedId({ createdAt: new Date(), ...data });
+      const fields = Object.keys(payload);
+      const values = Object.values(payload);
+      const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+      const row = await queryOne(
+        `INSERT INTO "StaffRefreshToken" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders}) RETURNING *`,
+        values,
+      );
+      return mapRefresh(row);
+    },
+    async update({ where, data }) {
+      const fields = Object.keys(data);
+      const values = Object.values(data);
+      const sets = fields.map((field, index) => `"${field}" = $${index + 1}`).join(", ");
+      const row = await queryOne(
+        `UPDATE "StaffRefreshToken" SET ${sets} WHERE "id" = $${fields.length + 1} RETURNING *`,
+        [...values, where.id],
+      );
+      return mapRefresh(row);
+    },
+    async updateMany({ where = {}, data }) {
+      const dataFields = Object.keys(data);
+      const dataValues = Object.values(data);
+      const dataSets = dataFields.map((field, index) => `"${field}" = $${index + 1}`).join(", ");
+      const { sql, params } = buildWhere(where, [...dataValues]);
+      const result = await client.query(
+        `UPDATE "StaffRefreshToken" SET ${dataSets}${sql ? ` WHERE ${sql}` : ""}`,
+        params,
+      );
+      return { count: result.rowCount ?? 0 };
+    },
+    async deleteMany({ where = {} }) {
+      const { sql, params } = buildWhere(where);
+      const result = await client.query(`DELETE FROM "StaffRefreshToken"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return { count: result.rowCount ?? 0 };
+    },
+    async count({ where = {} } = {}) {
+      const { sql, params } = buildWhere(where);
+      const row = await queryOne(`SELECT COUNT(*)::int AS count FROM "StaffRefreshToken"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return mapSimpleCountRow(row);
+    },
+  };
+
   const auditLog = {
     async create({ data }) {
       const payload = withGeneratedId({ createdAt: new Date(), ...data });
@@ -285,13 +354,91 @@ function createApi(client) {
   };
 
   const masterAdmin = {
+    async findFirst({ where = {} }) {
+      const { sql, params } = buildWhere(where);
+      return mapStaffAccount(await queryOne(`SELECT * FROM "MasterAdmin"${sql ? ` WHERE ${sql}` : ""} ORDER BY "createdAt" DESC LIMIT 1`, params));
+    },
+    async findUnique({ where }) {
+      if (where.id) {
+        return mapStaffAccount(await queryOne(`SELECT * FROM "MasterAdmin" WHERE "id" = $1 LIMIT 1`, [where.id]));
+      }
+      if (where.username) {
+        return mapStaffAccount(await queryOne(`SELECT * FROM "MasterAdmin" WHERE "username" = $1 LIMIT 1`, [where.username]));
+      }
+      if (where.email) {
+        return mapStaffAccount(await queryOne(`SELECT * FROM "MasterAdmin" WHERE "email" = $1 LIMIT 1`, [where.email]));
+      }
+      return null;
+    },
+    async create({ data }) {
+      const payload = withGeneratedId({ createdAt: new Date(), updatedAt: new Date(), ...data });
+      const fields = Object.keys(payload);
+      const values = Object.values(payload);
+      const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+      const row = await queryOne(
+        `INSERT INTO "MasterAdmin" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders}) RETURNING *`,
+        values,
+      );
+      return mapStaffAccount(row);
+    },
     async count() {
       const row = await queryOne(`SELECT COUNT(*)::int AS count FROM "MasterAdmin"`);
       return mapSimpleCountRow(row);
     },
+    async deleteMany({ where = {} }) {
+      const { sql, params } = buildWhere(where);
+      const result = await client.query(`DELETE FROM "MasterAdmin"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return { count: result.rowCount ?? 0 };
+    },
   };
 
   const masterAdminRefreshToken = {
+    async findUnique({ where }) {
+      if (where.tokenHash) {
+        return mapRefresh(await queryOne(`SELECT * FROM "MasterAdminRefreshToken" WHERE "tokenHash" = $1 LIMIT 1`, [where.tokenHash]));
+      }
+      if (where.id) {
+        return mapRefresh(await queryOne(`SELECT * FROM "MasterAdminRefreshToken" WHERE "id" = $1 LIMIT 1`, [where.id]));
+      }
+      return null;
+    },
+    async create({ data }) {
+      const payload = withGeneratedId({ createdAt: new Date(), ...data });
+      const fields = Object.keys(payload);
+      const values = Object.values(payload);
+      const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+      const row = await queryOne(
+        `INSERT INTO "MasterAdminRefreshToken" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders}) RETURNING *`,
+        values,
+      );
+      return mapRefresh(row);
+    },
+    async update({ where, data }) {
+      const fields = Object.keys(data);
+      const values = Object.values(data);
+      const sets = fields.map((field, index) => `"${field}" = $${index + 1}`).join(", ");
+      const row = await queryOne(
+        `UPDATE "MasterAdminRefreshToken" SET ${sets} WHERE "id" = $${fields.length + 1} RETURNING *`,
+        [...values, where.id],
+      );
+      return mapRefresh(row);
+    },
+    async updateMany({ where = {}, data }) {
+      const dataFields = Object.keys(data);
+      const dataValues = Object.values(data);
+      const dataSets = dataFields.map((field, index) => `"${field}" = $${index + 1}`).join(", ");
+      const { sql, params } = buildWhere(where, [...dataValues]);
+      const result = await client.query(
+        `UPDATE "MasterAdminRefreshToken" SET ${dataSets}${sql ? ` WHERE ${sql}` : ""}`,
+        params,
+      );
+      return { count: result.rowCount ?? 0 };
+    },
+    async deleteMany({ where = {} }) {
+      const { sql, params } = buildWhere(where);
+      const result = await client.query(`DELETE FROM "MasterAdminRefreshToken"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return { count: result.rowCount ?? 0 };
+    },
     async count() {
       const row = await queryOne(`SELECT COUNT(*)::int AS count FROM "MasterAdminRefreshToken"`);
       return mapSimpleCountRow(row);
@@ -316,6 +463,7 @@ function createApi(client) {
     staffAccount,
     staffInvitation,
     staffPasswordReset,
+    staffRefreshToken,
     auditLog,
     permission,
     staffRole,

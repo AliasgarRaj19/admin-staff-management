@@ -1,7 +1,6 @@
-export function main() {
-  return "Admin + Staff Management foundation ready.";
-}
+import { createApp } from "./app.js";
+import { env } from "./config/env.js";
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  console.log(main());
-}
+createApp().listen(env.PORT, () => {
+  console.log(`Server running on ${env.PORT}`);
+});

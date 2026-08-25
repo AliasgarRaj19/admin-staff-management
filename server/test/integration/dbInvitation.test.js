@@ -19,16 +19,12 @@ if (runDbTests) {
 }
 
 async function cleanup(prefix = testPrefix) {
-  await prisma.auditLog.deleteMany({
-    where: {
-      OR: [
-        { actorId: { startsWith: prefix } },
-        { resourceId: { startsWith: prefix } },
-      ],
-    },
-  });
-  await prisma.staffInvitation.deleteMany({ where: { email: { startsWith: prefix } } });
-  await prisma.staffAccount.deleteMany({ where: { email: { startsWith: prefix } } });
+  await prisma.auditLog.deleteMany({});
+  await prisma.staffInvitation.deleteMany({});
+  await prisma.staffRefreshToken.deleteMany({});
+  await prisma.staffAccount.deleteMany({});
+  await prisma.masterAdminRefreshToken.deleteMany({});
+  await prisma.masterAdmin.deleteMany({});
 }
 
 after(async () => {
