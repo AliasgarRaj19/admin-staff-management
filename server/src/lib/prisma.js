@@ -90,6 +90,23 @@ function mapPermission(row) {
   };
 }
 
+function mapRole(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    createdAt: toDate(row.createdAt),
+    updatedAt: toDate(row.updatedAt),
+  };
+}
+
+function mapJoinRow(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    createdAt: toDate(row.createdAt),
+  };
+}
+
 function buildWhere(where = {}, params = [], alias = "t") {
   const clauses = [];
   const add = (sql, value) => {
@@ -275,7 +292,7 @@ function createApi(client) {
       return null;
     },
     async create({ data }) {
-      const payload = withGeneratedId({ createdAt: new Date(), ...data });
+      const payload = { createdAt: new Date(), ...data };
       const fields = Object.keys(payload);
       const values = Object.values(payload);
       const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
@@ -343,6 +360,31 @@ function createApi(client) {
   };
 
   const permission = {
+    async findMany({ where = {} } = {}) {
+      const { sql, params } = buildWhere(where);
+      const rows = await queryAll(`SELECT * FROM "Permission"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return rows.map(mapPermission);
+    },
+    async findUnique({ where }) {
+      if (where.id) {
+        return mapPermission(await queryOne(`SELECT * FROM "Permission" WHERE "id" = $1 LIMIT 1`, [where.id]));
+      }
+      if (where.key) {
+        return mapPermission(await queryOne(`SELECT * FROM "Permission" WHERE "key" = $1 LIMIT 1`, [where.key]));
+      }
+      return null;
+    },
+    async create({ data }) {
+      const payload = withGeneratedId({ createdAt: new Date(), updatedAt: new Date(), ...data });
+      const fields = Object.keys(payload);
+      const values = Object.values(payload);
+      const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+      const row = await queryOne(
+        `INSERT INTO "Permission" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders}) RETURNING *`,
+        values,
+      );
+      return mapPermission(row);
+    },
     async createMany({ data = [], skipDuplicates = false }) {
       let count = 0;
       for (const item of data) {
@@ -358,8 +400,117 @@ function createApi(client) {
       }
       return { count };
     },
+    async update({ where, data }) {
+      const fields = Object.keys(data);
+      const values = Object.values(data);
+      const sets = fields.map((field, index) => `"${field}" = $${index + 1}`).join(", ");
+      const target = where.id ? `"id" = $${fields.length + 1}` : `"key" = $${fields.length + 1}`;
+      const row = await queryOne(
+        `UPDATE "Permission" SET ${sets} WHERE ${target} RETURNING *`,
+        [...values, where.id ?? where.key],
+      );
+      return mapPermission(row);
+    },
+    async deleteMany({ where = {} }) {
+      const { sql, params } = buildWhere(where);
+      const result = await client.query(`DELETE FROM "Permission"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return { count: result.rowCount ?? 0 };
+    },
     async count() {
       const row = await queryOne(`SELECT COUNT(*)::int AS count FROM "Permission"`);
+      return mapSimpleCountRow(row);
+    },
+  };
+
+  const role = {
+    async findMany({ where = {} } = {}) {
+      const { sql, params } = buildWhere(where);
+      const rows = await queryAll(`SELECT * FROM "Role"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return rows.map(mapRole);
+    },
+    async findUnique({ where }) {
+      if (where.id) {
+        return mapRole(await queryOne(`SELECT * FROM "Role" WHERE "id" = $1 LIMIT 1`, [where.id]));
+      }
+      if (where.name) {
+        return mapRole(await queryOne(`SELECT * FROM "Role" WHERE "name" = $1 LIMIT 1`, [where.name]));
+      }
+      return null;
+    },
+    async create({ data }) {
+      const payload = withGeneratedId({ createdAt: new Date(), updatedAt: new Date(), ...data });
+      const fields = Object.keys(payload);
+      const values = Object.values(payload);
+      const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+      const row = await queryOne(
+        `INSERT INTO "Role" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders}) RETURNING *`,
+        values,
+      );
+      return mapRole(row);
+    },
+    async update({ where, data }) {
+      const fields = Object.keys(data);
+      const values = Object.values(data);
+      const sets = fields.map((field, index) => `"${field}" = $${index + 1}`).join(", ");
+      const target = where.id ? `"id" = $${fields.length + 1}` : `"name" = $${fields.length + 1}`;
+      const row = await queryOne(
+        `UPDATE "Role" SET ${sets} WHERE ${target} RETURNING *`,
+        [...values, where.id ?? where.name],
+      );
+      return mapRole(row);
+    },
+    async deleteMany({ where = {} }) {
+      const { sql, params } = buildWhere(where);
+      const result = await client.query(`DELETE FROM "Role"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return { count: result.rowCount ?? 0 };
+    },
+    async count({ where = {} } = {}) {
+      const { sql, params } = buildWhere(where);
+      const row = await queryOne(`SELECT COUNT(*)::int AS count FROM "Role"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return mapSimpleCountRow(row);
+    },
+  };
+
+  const rolePermission = {
+    async findMany({ where = {} } = {}) {
+      const { sql, params } = buildWhere(where);
+      const rows = await queryAll(`SELECT * FROM "RolePermission"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return rows.map(mapJoinRow);
+    },
+    async create({ data }) {
+      const payload = { createdAt: new Date(), ...data };
+      const fields = Object.keys(payload);
+      const values = Object.values(payload);
+      const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+      const row = await queryOne(
+        `INSERT INTO "RolePermission" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders}) RETURNING *`,
+        values,
+      );
+      return mapJoinRow(row);
+    },
+    async createMany({ data = [], skipDuplicates = false }) {
+      let count = 0;
+      for (const item of data) {
+        const fields = Object.keys(item);
+        const values = Object.values(item);
+        const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+        const conflict = skipDuplicates ? " ON CONFLICT (\"roleId\", \"permissionId\") DO NOTHING" : "";
+        const result = await client.query(
+          `INSERT INTO "RolePermission" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders})${conflict}`,
+          values,
+        );
+        count += result.rowCount ?? 0;
+      }
+      return { count };
+    },
+    async deleteMany({ where = {} }) {
+      const { sql, params } = buildWhere(where);
+      const result = await client.query(`DELETE FROM "RolePermission"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return { count: result.rowCount ?? 0 };
+    },
+    async count({ where = {} } = {}) {
+      const { sql, params } = buildWhere(where);
+      const row = await queryOne(`SELECT COUNT(*)::int AS count FROM "RolePermission"${sql ? ` WHERE ${sql}` : ""}`, params);
       return mapSimpleCountRow(row);
     },
   };
@@ -414,7 +565,7 @@ function createApi(client) {
       return null;
     },
     async create({ data }) {
-      const payload = withGeneratedId({ createdAt: new Date(), ...data });
+      const payload = { createdAt: new Date(), ...data };
       const fields = Object.keys(payload);
       const values = Object.values(payload);
       const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
@@ -457,6 +608,42 @@ function createApi(client) {
   };
 
   const staffRole = {
+    async findMany({ where = {} } = {}) {
+      const { sql, params } = buildWhere(where);
+      const rows = await queryAll(`SELECT * FROM "StaffRole"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return rows.map(mapJoinRow);
+    },
+    async create({ data }) {
+      const payload = { createdAt: new Date(), ...data };
+      const fields = Object.keys(payload);
+      const values = Object.values(payload);
+      const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+      const row = await queryOne(
+        `INSERT INTO "StaffRole" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders}) RETURNING *`,
+        values,
+      );
+      return mapJoinRow(row);
+    },
+    async createMany({ data = [], skipDuplicates = false }) {
+      let count = 0;
+      for (const item of data) {
+        const fields = Object.keys(item);
+        const values = Object.values(item);
+        const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+        const conflict = skipDuplicates ? " ON CONFLICT (\"staffAccountId\", \"roleId\") DO NOTHING" : "";
+        const result = await client.query(
+          `INSERT INTO "StaffRole" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders})${conflict}`,
+          values,
+        );
+        count += result.rowCount ?? 0;
+      }
+      return { count };
+    },
+    async deleteMany({ where = {} }) {
+      const { sql, params } = buildWhere(where);
+      const result = await client.query(`DELETE FROM "StaffRole"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return { count: result.rowCount ?? 0 };
+    },
     async count() {
       const row = await queryOne(`SELECT COUNT(*)::int AS count FROM "StaffRole"`);
       return mapSimpleCountRow(row);
@@ -464,6 +651,42 @@ function createApi(client) {
   };
 
   const staffPermission = {
+    async findMany({ where = {} } = {}) {
+      const { sql, params } = buildWhere(where);
+      const rows = await queryAll(`SELECT * FROM "StaffPermission"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return rows.map(mapJoinRow);
+    },
+    async create({ data }) {
+      const payload = { createdAt: new Date(), ...data };
+      const fields = Object.keys(payload);
+      const values = Object.values(payload);
+      const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+      const row = await queryOne(
+        `INSERT INTO "StaffPermission" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders}) RETURNING *`,
+        values,
+      );
+      return mapJoinRow(row);
+    },
+    async createMany({ data = [], skipDuplicates = false }) {
+      let count = 0;
+      for (const item of data) {
+        const fields = Object.keys(item);
+        const values = Object.values(item);
+        const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+        const conflict = skipDuplicates ? " ON CONFLICT (\"staffAccountId\", \"permissionId\") DO NOTHING" : "";
+        const result = await client.query(
+          `INSERT INTO "StaffPermission" (${fields.map((field) => `"${field}"`).join(", ")}) VALUES (${placeholders})${conflict}`,
+          values,
+        );
+        count += result.rowCount ?? 0;
+      }
+      return { count };
+    },
+    async deleteMany({ where = {} }) {
+      const { sql, params } = buildWhere(where);
+      const result = await client.query(`DELETE FROM "StaffPermission"${sql ? ` WHERE ${sql}` : ""}`, params);
+      return { count: result.rowCount ?? 0 };
+    },
     async count() {
       const row = await queryOne(`SELECT COUNT(*)::int AS count FROM "StaffPermission"`);
       return mapSimpleCountRow(row);
@@ -477,6 +700,8 @@ function createApi(client) {
     staffRefreshToken,
     auditLog,
     permission,
+    role,
+    rolePermission,
     staffRole,
     staffPermission,
     masterAdmin,

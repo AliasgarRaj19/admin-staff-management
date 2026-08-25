@@ -20,3 +20,26 @@ export const passwordResetSchema = z.object({
   password: z.string().min(12),
   repeatPassword: z.string().min(12),
 });
+
+const identifierList = z.array(z.string().min(1)).default([]);
+
+export const roleManagementSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional().nullable(),
+  permissionIds: identifierList.optional(),
+  permissionKeys: identifierList.optional(),
+});
+
+export const rolePermissionUpdateSchema = z.object({
+  permissionIds: identifierList.optional(),
+  permissionKeys: identifierList.optional(),
+});
+
+export const staffRoleUpdateSchema = z.object({
+  roleIds: identifierList.optional(),
+});
+
+export const staffPermissionUpdateSchema = z.object({
+  permissionIds: identifierList.optional(),
+  permissionKeys: identifierList.optional(),
+});

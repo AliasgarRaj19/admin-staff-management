@@ -7,6 +7,7 @@ import { getAccessJwks } from "./lib/jwt.js";
 import { authRouter } from "./routes/auth.js";
 import { userRouter } from "./routes/user.js";
 import { adminRouter } from "./routes/admin.js";
+import { staffAccessRouter } from "./routes/staffAccess.js";
 
 export function createApp() {
   const app = express();
@@ -40,6 +41,7 @@ export function createApp() {
     }
   });
   app.use("/api/staff/auth", authRouter);
+  app.use("/api/staff/access-check", staffAccessRouter);
   app.use("/api/user", userRouter);
   app.use("/api/admin", adminRouter);
   app.use((err, _req, res, _next) => {
