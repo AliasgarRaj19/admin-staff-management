@@ -35,15 +35,16 @@ Canonical Admin + Staff Management System foundation and deployment phases.
 9. Run `docker compose -f docker-compose.prod.yml --env-file .env.production run --rm server npm run prisma:migrate:deploy`.
 10. Run `docker compose -f docker-compose.prod.yml --env-file .env.production run --rm server npm run prisma:seed`.
 11. Run `docker compose -f docker-compose.prod.yml --env-file .env.production run --rm server node scripts/bootstrap-master-admin.mjs --username=... --password=...`.
-12. Start or recreate the long-running server and client containers.
-13. Configure the host Nginx edge to proxy `/admin-staff/` and `/admin-staff/api/` to the local containers.
-14. Verify HTTPS terminates only at the host Nginx layer.
-15. Verify `GET /api/health` returns `{ "ok": true }`.
-16. Verify `GET /api/.well-known/jwks.json` returns public JWKS data only.
-17. Run browser smoke tests for staff login, MasterAdmin login, invitations, RBAC, and lifecycle flows.
-18. Verify the server container runs as a non-root user.
-19. Verify private RSA keys are not exposed in the image, Git, or client bundle.
-20. Verify audit IP logging works behind the trusted proxy hop.
+12. Run `docker compose -f docker-compose.prod.yml --env-file .env.production run --rm server npm run smtp:verify` if you want a safe SMTP transport check.
+13. Start or recreate the long-running server and client containers.
+14. Configure the host Nginx edge to proxy `/admin-staff/` and `/admin-staff/api/` to the local containers.
+15. Verify HTTPS terminates only at the host Nginx layer.
+16. Verify `GET /api/health` returns `{ "ok": true }`.
+17. Verify `GET /api/.well-known/jwks.json` returns public JWKS data only.
+18. Run browser smoke tests for staff login, MasterAdmin login, invitations, RBAC, and lifecycle flows.
+19. Verify the server container runs as a non-root user.
+20. Verify private RSA keys are not exposed in the image, Git, or client bundle.
+21. Verify audit IP logging works behind the trusted proxy hop.
 
 ## Production Checklist Notes
 
@@ -97,6 +98,7 @@ Production SMTP is env-driven through:
 - `SMTP_USER`
 - `SMTP_PASSWORD`
 - `SMTP_FROM`
+- `npm run smtp:verify -w server` performs a safe transport check without exposing secrets.
 
 ## Cookie and CORS
 

@@ -41,6 +41,7 @@ for (const relativePath of [
   "src/index.js",
   "scripts/generate-jwt-keys.mjs",
   "scripts/bootstrap-master-admin.mjs",
+  "scripts/verify-smtp.mjs",
   "Dockerfile",
 ]) {
   test(`required file exists: ${relativePath}`, () => {
