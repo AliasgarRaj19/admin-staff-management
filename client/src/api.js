@@ -15,7 +15,7 @@ export async function request(path, { method = "GET", body, csrfToken, headers =
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload.message || "Request failed");
+    const error = new Error(payload.message || response.statusText || "Request failed");
     error.status = response.status;
     error.payload = payload;
     throw error;

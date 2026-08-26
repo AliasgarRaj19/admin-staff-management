@@ -117,8 +117,96 @@ function groupPermissionSelections(registry = { groups: {} }, selectedKeys = [])
 }
 
 function getPermissionHref(permissionKey) {
-  const [moduleName] = String(permissionKey || "").split(".");
-  return `/admin/permissions?module=${encodeURIComponent(moduleName || "pages")}`;
+  return `/staff/access/${encodeURIComponent(String(permissionKey || "").trim())}`;
+}
+
+function getSafeErrorMessage(error) {
+  return error?.payload?.message || error?.message || "Request failed";
+}
+
+function LifecycleActions({ item, onAction, onDelete, csrfToken, showManagementLinks = false, deleteConfirmValue = "", onDeleteConfirmChange = null }) {
+  const status = String(item.status || "").toLowerCase();
+  const isRemoved = status === "removed";
+  const isBlocked = status === "blocked";
+  const isActive = status === "active";
+  if (!isActive && !isBlocked && !isRemoved) return null;
+  return (
+    <div className="button-row">
+      <LinkButton to={`/admin/staff/${item.id}`}>View</LinkButton>
+      {isActive && showManagementLinks ? <LinkButton to={`/admin/staff/${item.id}`}>Manage Roles</LinkButton> : null}
+      {isActive && showManagementLinks ? <LinkButton to={`/admin/staff/${item.id}`}>Manage Permissions</LinkButton> : null}
+      {isActive ? <Button variant="secondary" onClick={() => onAction(`/api/admin/staff/${item.id}/block`, { method: "POST", csrfToken })}>Block</Button> : null}
+      {isActive ? <Button variant="secondary" onClick={() => onAction(`/api/admin/staff/${item.id}/remove`, { method: "POST", csrfToken })}>Remove</Button> : null}
+      {isBlocked ? <Button variant="secondary" onClick={() => onAction(`/api/admin/staff/${item.id}/unblock`, { method: "POST", csrfToken })}>Unblock</Button> : null}
+      {isBlocked ? <Button variant="secondary" onClick={() => onAction(`/api/admin/staff/${item.id}/remove`, { method: "POST", csrfToken })}>Remove</Button> : null}
+      {isRemoved ? <Button variant="secondary" onClick={() => onAction(`/api/admin/staff/${item.id}/restore`, { method: "POST", csrfToken })}>Restore</Button> : null}
+      {isRemoved ? (
+        <div className="stack">
+          {typeof onDeleteConfirmChange === "function" ? (
+            <label className="field">
+              <span>Type DELETE to permanently delete</span>
+              <input
+                value={deleteConfirmValue}
+                onChange={(event) => onDeleteConfirmChange(event.target.value)}
+              />
+            </label>
+          ) : null}
+          <Button variant="danger" onClick={onDelete} disabled={deleteConfirmValue !== "DELETE"}>Delete Permanently</Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function StaffPermissionPlaceholderPage() {
+  const { session, clearSession } = useSession("staff");
+  const { permissionKey } = useParams();
+  const navigate = useNavigate();
+  const [message, setMessage] = useState("");
+  const [allowed, setAllowed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await request(`/api/staff/access-check/${encodeURIComponent(permissionKey || "")}`, {
+          headers: { Authorization: `Bearer ${session.accessToken}` },
+        });
+        if (!cancelled) {
+          setAllowed(true);
+          setMessage(data.message || "You have been granted access.");
+        }
+      } catch (error) {
+        if (cancelled) return;
+        if (error.status === 401) {
+          clearSession();
+          navigate("/login", { replace: true });
+          return;
+        }
+        if (error.status === 403) {
+          setAllowed(false);
+          setMessage("Permission denied.");
+          return;
+        }
+        setAllowed(false);
+        setMessage(getSafeErrorMessage(error));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [clearSession, navigate, permissionKey, session.accessToken]);
+
+  return (
+    <Shell
+      title="Staff Access"
+      aside={<Button variant="ghost" onClick={() => navigate(-1)}>Back</Button>}
+    >
+      <div className="stack">
+        <Notice tone={allowed ? "success" : "error"}>{message || "Checking access..."}</Notice>
+        {allowed ? <p>You have been granted access.</p> : null}
+        {allowed ? <p>Permission: {String(permissionKey || "").replace(/\./g, " / ")}</p> : null}
+      </div>
+    </Shell>
+  );
 }
 
 function LoadingShell({ title, message = "Restoring session..." }) {
@@ -186,6 +274,7 @@ function AppRouter() {
       <Route path="/login" element={<StaffLoginGate><StaffLoginPage /></StaffLoginGate>} />
       <Route path="/dashboard" element={<RequireRole role="staff"><StaffDashboardPage /></RequireRole>} />
       <Route path="/change-password" element={<RequireRole role="staff"><ChangePasswordPage /></RequireRole>} />
+      <Route path="/staff/access/:permissionKey" element={<RequireRole role="staff"><StaffPermissionPlaceholderPage /></RequireRole>} />
       <Route path="/staff/register" element={<PublicPage><StaffInvitationRegistrationPage /></PublicPage>} />
       <Route path="/admin/login" element={<AdminLoginGate><AdminLoginPage /></AdminLoginGate>} />
       <Route path="/admin/dashboard" element={<RequireRole role="masterAdmin"><AdminDashboardPage /></RequireRole>} />
@@ -253,7 +342,7 @@ function StaffLoginPage() {
       setSession(next);
       navigate("/dashboard", { replace: true });
     } catch (error) {
-      setMessage(error.message);
+      setMessage(getSafeErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -289,7 +378,7 @@ function AdminLoginPage() {
       setSession(next);
       navigate("/admin/dashboard", { replace: true });
     } catch (error) {
-      setMessage(error.message);
+      setMessage(getSafeErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -439,7 +528,12 @@ function ChangePasswordPage() {
       setMessage("Password changed successfully.");
       setForm({ currentPassword: "", newPassword: "", repeatNewPassword: "" });
     } catch (error) {
-      setMessage(error.message);
+      if (error.status === 401) {
+        clearSession();
+        navigate("/login", { replace: true });
+        return;
+      }
+      setMessage(getSafeErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -518,7 +612,7 @@ function StaffInvitationRegistrationPage() {
       setMessage("Your account has been created successfully.");
       navigate("/login", { replace: true });
     } catch (error) {
-      setMessage(error.message);
+      setMessage(getSafeErrorMessage(error));
     }
   }
 
@@ -614,6 +708,7 @@ function AdminStaffListPage() {
   const [invitations, setInvitations] = useState([]);
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState("");
   const tab = searchParams.get("tab") || "registered";
   const isInvitedTab = tab === "invited";
   const isRegisteredTab = tab === "registered";
@@ -658,12 +753,15 @@ function AdminStaffListPage() {
     }
   }, [auth.state.masterAdmin.accessToken, tab]);
 
-  async function runLifecycle(path, body) {
+  async function runLifecycle(path, body, method = "POST") {
     setMessage("");
     try {
       await request(path, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+        method,
+        headers: {
+          Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+          ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+        },
         body,
       });
       broadcastPermissionChange("staff");
@@ -678,7 +776,7 @@ function AdminStaffListPage() {
       }
       setMessage("Staff record updated successfully.");
     } catch (error) {
-      setMessage(error.message);
+      setMessage(getSafeErrorMessage(error));
     }
   }
 
@@ -695,13 +793,16 @@ function AdminStaffListPage() {
         : `/api/admin/staff/invitations/${item.staffAccountId}/revoke`;
       await request(endpoint, {
         method: "POST",
-        headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+        headers: {
+          Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+          ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+        },
       });
       broadcastPermissionChange("staff");
       await loadInvitations();
       setMessage(action === "resend" ? "Invitation resent successfully." : "Invitation revoked.");
     } catch (error) {
-      setMessage(error.message);
+      setMessage(getSafeErrorMessage(error));
     } finally {
       setBusyId("");
     }
@@ -754,14 +855,30 @@ function AdminStaffListPage() {
             <p>Designation: {item.roleName}</p>
             <p>Status: {item.status}</p>
             <p>Invited: {item.invitedAt ? new Date(item.invitedAt).toLocaleString() : "n/a"}</p>
-            <div className="button-row">
-              <LinkButton to={`/admin/staff/${item.id}`}>Open Staff Detail</LinkButton>
-              <Button variant="secondary" onClick={() => runLifecycle(`/api/admin/staff/${item.id}/block`)}>Block</Button>
-              <Button variant="secondary" onClick={() => runLifecycle(`/api/admin/staff/${item.id}/unblock`)}>Unblock</Button>
-              <Button variant="secondary" onClick={() => runLifecycle(`/api/admin/staff/${item.id}/remove`)}>Remove</Button>
-              <Button variant="secondary" onClick={() => runLifecycle(`/api/admin/staff/${item.id}/restore`)}>Restore</Button>
-              <Button variant="danger" onClick={() => runLifecycle(`/api/admin/staff/${item.id}`, { confirm: "DELETE" })}>DELETE</Button>
-            </div>
+            {item.status === "removed" ? (
+              <div className="stack">
+                <LifecycleActions
+                  item={item}
+                  csrfToken={auth.state.masterAdmin.csrfToken}
+                  onAction={runLifecycle}
+                  deleteConfirmValue={confirmDeleteId === item.id ? "DELETE" : ""}
+                  onDeleteConfirmChange={(value) => setConfirmDeleteId(value === "DELETE" ? item.id : "")}
+                  onDelete={async () => {
+                    if (confirmDeleteId !== item.id) return;
+                    await runLifecycle(`/api/admin/staff/${item.id}`, { confirm: "DELETE" }, "DELETE");
+                    setConfirmDeleteId("");
+                  }}
+                />
+              </div>
+            ) : (
+              <LifecycleActions
+                item={item}
+                csrfToken={auth.state.masterAdmin.csrfToken}
+                onAction={runLifecycle}
+                showManagementLinks={true}
+                onDelete={() => {}}
+              />
+            )}
           </article>
         ))}
       </div>
@@ -781,13 +898,16 @@ function AdminInviteStaffPage() {
       const result = await request("/api/admin/staff/invitations", {
         method: "POST",
         body: form,
-        headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+        headers: {
+          Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+          ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+        },
       });
       setMessage("Invitation created successfully.");
       setForm({ email: "", roleName: "Moderator" });
       navigate("/admin/staff?tab=invited", { replace: true, state: { flashMessage: "Invitation created successfully." } });
     } catch (error) {
-      setMessage(error.message);
+      setMessage(getSafeErrorMessage(error));
     }
   }
 
@@ -860,13 +980,20 @@ function AdminStaffDetailPage() {
 
   async function runAction(path) {
     setMessage("");
-    await request(path, {
-      method: path.endsWith("/block") || path.endsWith("/unblock") || path.endsWith("/remove") || path.endsWith("/restore") ? "POST" : "DELETE",
-      headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
-      body: path.endsWith(`/${detail?.id}`) ? { confirm: confirmDelete } : undefined,
-    });
-    broadcastPermissionChange("staff");
-    await load();
+    try {
+      await request(path, {
+        method: path.endsWith("/block") || path.endsWith("/unblock") || path.endsWith("/remove") || path.endsWith("/restore") ? "POST" : "DELETE",
+        headers: {
+          Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+          ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+        },
+        body: path.endsWith(`/${detail?.id}`) ? { confirm: confirmDelete } : undefined,
+      });
+      broadcastPermissionChange("staff");
+      await load();
+    } catch (error) {
+      setMessage(getSafeErrorMessage(error));
+    }
   }
 
   async function saveRoles(event) {
@@ -875,14 +1002,17 @@ function AdminStaffDetailPage() {
     try {
       await request(`/api/admin/staff/${params.id}/roles`, {
         method: "PUT",
-        headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+        headers: {
+          Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+          ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+        },
         body: { roleIds: selectedRoleIds },
       });
       setMessage("Staff roles updated successfully.");
       broadcastPermissionChange("staff");
       await load();
     } catch (error) {
-      setMessage(error.message);
+      setMessage(getSafeErrorMessage(error));
     }
   }
 
@@ -892,14 +1022,17 @@ function AdminStaffDetailPage() {
     try {
       await request(`/api/admin/staff/${params.id}/permissions`, {
         method: "PUT",
-        headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+        headers: {
+          Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+          ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+        },
         body: { permissionKeys: selectedPermissionKeys },
       });
       setMessage("Staff permissions updated successfully.");
       broadcastPermissionChange("staff");
       await load();
     } catch (error) {
-      setMessage(error.message);
+      setMessage(getSafeErrorMessage(error));
     }
   }
 
@@ -970,16 +1103,15 @@ function AdminStaffDetailPage() {
             </div>
             <Button>Save Direct Permissions</Button>
           </form>
-          <div className="button-row">
-            <Button variant="secondary" onClick={() => runAction(`/api/admin/staff/${detail.id}/block`)}>Block</Button>
-            <Button variant="secondary" onClick={() => runAction(`/api/admin/staff/${detail.id}/unblock`)}>Unblock</Button>
-            <Button variant="secondary" onClick={() => runAction(`/api/admin/staff/${detail.id}/remove`)}>Remove</Button>
-            <Button variant="secondary" onClick={() => runAction(`/api/admin/staff/${detail.id}/restore`)}>Restore</Button>
-            <label className="field">
-              <span>Type DELETE to permanently delete</span>
-              <input value={confirmDelete} onChange={(event) => setConfirmDelete(event.target.value)} />
-            </label>
-            <Button variant="danger" onClick={() => runAction(`/api/admin/staff/${detail.id}`)} disabled={confirmDelete !== "DELETE"}>DELETE</Button>
+          <div className="stack">
+            <LifecycleActions
+              item={detail}
+              csrfToken={auth.state.masterAdmin.csrfToken}
+              onAction={runAction}
+              deleteConfirmValue={confirmDelete}
+              onDeleteConfirmChange={setConfirmDelete}
+              onDelete={() => runAction(`/api/admin/staff/${detail.id}`)}
+            />
           </div>
           <section className="detail-card">
             <h4>Assigned Roles</h4>
@@ -1037,14 +1169,20 @@ function AdminRolesPage() {
       if (selectedRoleId) {
         await request(`/api/admin/roles/${selectedRoleId}`, {
           method: "PATCH",
-          headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+          headers: {
+            Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+            ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+          },
           body,
         });
         setMessage("Role updated successfully.");
       } else {
         await request("/api/admin/roles", {
           method: "POST",
-          headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+          headers: {
+            Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+            ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+          },
           body,
         });
         setMessage("Role created successfully.");
@@ -1054,7 +1192,7 @@ function AdminRolesPage() {
       setSelectedRoleId("");
       await load();
     } catch (error) {
-      setMessage(error.message);
+      setMessage(getSafeErrorMessage(error));
     }
   }
 
@@ -1063,13 +1201,16 @@ function AdminRolesPage() {
     try {
       await request(`/api/admin/roles/${roleId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+        headers: {
+          Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+          ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+        },
       });
       broadcastPermissionChange("staff");
       setMessage("Role deleted successfully.");
       await load();
     } catch (error) {
-      setMessage(error.message);
+      setMessage(getSafeErrorMessage(error));
     }
   }
 
@@ -1141,13 +1282,31 @@ function AdminPermissionsPage() {
     event.preventDefault();
     const headers = { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` };
     const body = { permissionKeys: selected };
-    if (mode === "role") {
-      await request(`/api/admin/roles/${targetId}/permissions`, { method: "PUT", headers, body });
-    } else {
-      await request(`/api/admin/staff/${targetId}/permissions`, { method: "PUT", headers, body });
+    try {
+      if (mode === "role") {
+        await request(`/api/admin/roles/${targetId}/permissions`, {
+          method: "PUT",
+          headers: {
+            ...headers,
+            ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+          },
+          body,
+        });
+      } else {
+        await request(`/api/admin/staff/${targetId}/permissions`, {
+          method: "PUT",
+          headers: {
+            ...headers,
+            ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+          },
+          body,
+        });
+      }
+      broadcastPermissionChange("staff");
+      setMessage("Permissions updated successfully.");
+    } catch (error) {
+      setMessage(getSafeErrorMessage(error));
     }
-    broadcastPermissionChange("staff");
-    setMessage("Permissions updated successfully.");
   }
 
   return (
@@ -1249,6 +1408,7 @@ export {
   AdminStaffDetailPage,
   AdminStaffListPage,
   ChangePasswordPage,
+  StaffPermissionPlaceholderPage,
   StaffDashboardPage,
   StaffInvitationRegistrationPage,
   StaffLoginPage,

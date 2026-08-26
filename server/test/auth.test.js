@@ -270,6 +270,72 @@ dbTest("route-level login/refresh/logout/me flow preserves cookies and rejects c
   assert.equal(masterAdminCount, 0);
 });
 
+dbTest("staff change password requires csrf, rotates credentials, and revokes old refresh sessions", async () => {
+  const staff = await seedStaff({ email: `${prefix}_password@example.com`, status: "active" });
+  const loginRes = await request(app)
+    .post("/api/staff/auth/login")
+    .send({ email: staff.email, password: "StrongPass123" })
+    .expect(200);
+
+  await request(app)
+    .post("/api/user/change-password")
+    .set("Authorization", `Bearer ${loginRes.body.accessToken}`)
+    .set("Cookie", loginRes.headers["set-cookie"])
+    .send({
+      currentPassword: "StrongPass123",
+      newPassword: "NewStrongPass123!",
+      repeatNewPassword: "NewStrongPass123!",
+    })
+    .expect(403);
+
+  await request(app)
+    .post("/api/user/change-password")
+    .set("Authorization", `Bearer ${loginRes.body.accessToken}`)
+    .set("x-csrf-token", cookieValue(loginRes.headers["set-cookie"], "staffCsrfToken"))
+    .set("Cookie", loginRes.headers["set-cookie"])
+    .send({
+      currentPassword: "WrongPass123",
+      newPassword: "NewStrongPass123!",
+      repeatNewPassword: "NewStrongPass123!",
+    })
+    .expect(400)
+    .expect((res) => {
+      assert.equal(res.body.message, "Current password is incorrect.");
+    });
+
+  await request(app)
+    .post("/api/user/change-password")
+    .set("Authorization", `Bearer ${loginRes.body.accessToken}`)
+    .set("x-csrf-token", cookieValue(loginRes.headers["set-cookie"], "staffCsrfToken"))
+    .set("Cookie", loginRes.headers["set-cookie"])
+    .send({
+      currentPassword: "StrongPass123",
+      newPassword: "NewStrongPass123!",
+      repeatNewPassword: "NewStrongPass123!",
+    })
+    .expect(200)
+    .expect((res) => {
+      assert.equal(res.body.ok, true);
+      assert.equal(res.body.message, "Password changed successfully.");
+    });
+
+  await request(app)
+    .post("/api/staff/auth/login")
+    .send({ email: staff.email, password: "StrongPass123" })
+    .expect(401);
+
+  const relogin = await request(app)
+    .post("/api/staff/auth/login")
+    .send({ email: staff.email, password: "NewStrongPass123!" })
+    .expect(200);
+  assert.equal(relogin.body.user.email, staff.email);
+
+  await request(app)
+    .post("/api/staff/auth/refresh")
+    .set("Cookie", loginRes.headers["set-cookie"])
+    .expect(401);
+});
+
 dbTest("master admin login/refresh/logout/me flow uses its own cookie namespace", async () => {
   const masterAdmin = await seedMasterAdmin({ username: `${prefix}_master` });
 

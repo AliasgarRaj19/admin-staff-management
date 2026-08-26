@@ -16,4 +16,14 @@ router.get("/pages/create", requireStaffAuth, requirePermission("pages.create"),
   res.json({ ok: true, message: "You have been granted access." });
 });
 
+router.get("/:permissionKey", requireStaffAuth, async (req, res) => {
+  const permissionKey = String(req.params.permissionKey || "").trim();
+  if (!permissionKey) {
+    return res.status(404).json({ message: "Not found" });
+  }
+  return requirePermission(permissionKey)(req, res, () => {
+    res.json({ ok: true, message: "You have been granted access.", permissionKey });
+  });
+});
+
 export { router as staffAccessRouter };

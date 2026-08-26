@@ -9,6 +9,9 @@ import {
   AdminStaffDetailPage,
   AdminStaffListPage,
   AuthContext,
+  ChangePasswordPage,
+  RequireRole,
+  StaffPermissionPlaceholderPage,
   StaffDashboardPage,
   StaffInvitationRegistrationPage,
 } from "../src/main.jsx";
@@ -243,8 +246,65 @@ describe("staff dashboard and permissions", () => {
     renderWithAuth(<StaffDashboardPage />, createAuthState());
 
     await screen.findByText(/Security Roles/i);
-    expect(screen.getByRole("link", { name: "Pages" }).getAttribute("href")).toContain("/admin/permissions?module=pages");
-    expect(screen.getByRole("link", { name: "Edit Blog" }).getAttribute("href")).toContain("/admin/permissions?module=blog");
+    expect(screen.getByRole("link", { name: "Pages" }).getAttribute("href")).toContain("/staff/access/pages.read");
+    expect(screen.getByRole("link", { name: "Edit Blog" }).getAttribute("href")).toContain("/staff/access/blog.edit");
+  });
+
+  test("staff permission placeholder renders granted access and keeps staff users out of admin login", async () => {
+    request.mockImplementation(async (path, options = {}) => {
+      if (path === "/api/staff/access-check/pages.read") {
+        expect(options.headers.Authorization).toBe("Bearer staff-token");
+        return { ok: true, message: "You have been granted access.", permissionKey: "pages.read" };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    renderWithAuthRoute("/staff/access/pages.read", (
+      <Routes>
+        <Route path="/staff/access/:permissionKey" element={<RequireRole role="staff"><StaffPermissionPlaceholderPage /></RequireRole>} />
+        <Route path="/login" element={<div>Staff Login</div>} />
+        <Route path="/admin/login" element={<div>MasterAdmin Login</div>} />
+      </Routes>
+    ), createAuthState());
+
+    await screen.findAllByText(/You have been granted access\./i);
+    expect(screen.getByText(/Permission: pages \/ read/i)).toBeTruthy();
+    expect(screen.queryByText("MasterAdmin Login")).toBeNull();
+  });
+
+  test("staff permission placeholder denies missing permission without redirecting to admin login", async () => {
+    request.mockImplementation(async (path) => {
+      if (path.startsWith("/api/staff/access-check/")) {
+        const error = new Error("Permission denied.");
+        error.status = 403;
+        throw error;
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    renderWithAuthRoute("/staff/access/pages.read", (
+      <Routes>
+        <Route path="/staff/access/:permissionKey" element={<RequireRole role="staff"><StaffPermissionPlaceholderPage /></RequireRole>} />
+        <Route path="/login" element={<div>Staff Login</div>} />
+        <Route path="/admin/login" element={<div>MasterAdmin Login</div>} />
+      </Routes>
+    ), createAuthState());
+
+    await screen.findByText(/Permission denied\./i);
+    expect(screen.queryByText("MasterAdmin Login")).toBeNull();
+  });
+
+  test("invalid staff session on a permission route returns the staff login page", async () => {
+    renderWithAuthRoute("/staff/access/pages.read", (
+      <Routes>
+        <Route path="/staff/access/:permissionKey" element={<RequireRole role="staff"><StaffPermissionPlaceholderPage /></RequireRole>} />
+        <Route path="/login" element={<div>Staff Login</div>} />
+        <Route path="/admin/login" element={<div>MasterAdmin Login</div>} />
+      </Routes>
+    ), createAuthState({ staff: { accessToken: "" } }));
+
+    await screen.findByText("Staff Login");
+    expect(screen.queryByText("MasterAdmin Login")).toBeNull();
   });
 });
 
@@ -260,7 +320,7 @@ describe("admin lifecycle and role management", () => {
     });
   }
 
-  test("staff lifecycle list exposes status filters and action buttons", async () => {
+  test("staff lifecycle list exposes status filters and status-aware action buttons", async () => {
     request.mockImplementation(async (path) => {
       if (path === "/api/admin/staff?status=active") {
         return { staff: [{ id: "staff-1", email: "staff@example.com", roleName: "Moderator", status: "active" }] };
@@ -280,19 +340,61 @@ describe("admin lifecycle and role management", () => {
     renderWithAuth(<AdminStaffListPage />, createAdminState());
 
     await screen.findByText("staff@example.com");
+    expect(screen.getAllByRole("link", { name: "Manage Roles" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Manage Permissions" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Blocked Staff" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith(
       "/api/admin/staff?status=blocked",
       expect.any(Object),
     ));
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    await waitFor(() => expect(request.mock.calls.some(([path]) => String(path).endsWith("/remove"))).toBe(true));
+    expect(screen.getByRole("button", { name: "Unblock" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Removed Staff" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      "/api/admin/staff?status=removed",
+      expect.any(Object),
+    ));
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Restore" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete Permanently" })).toBeTruthy();
+  });
+
+  test("permanent delete requires DELETE confirmation and sends the correct body", async () => {
+    request.mockImplementation(async (path, options = {}) => {
+      if (path === "/api/admin/staff/staff-1" && options.method === "DELETE") {
+        return { ok: true };
+      }
+      if (path === "/api/admin/staff/staff-1") {
+        return { staff: { id: "staff-1", email: "removed@example.com", roleName: "Moderator", status: "removed" } };
+      }
+      return {};
+    });
+
+    render(
+      <AuthContext.Provider value={{ state: createAdminState(), setState: vi.fn() }}>
+        <MemoryRouter initialEntries={["/admin/staff/staff-1"]}>
+          <Routes>
+            <Route path="/admin/staff/:id" element={<AdminStaffDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+
+    await screen.findByText(/removed@example.com/i);
+    expect(screen.getByLabelText(/Type DELETE to permanently delete/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete Permanently" }).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Type DELETE to permanently delete/i), { target: { value: "DELETE" } });
+    fireEvent.click(screen.getByRole("button", { name: "Delete Permanently" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      "/api/admin/staff/staff-1",
+      expect.objectContaining({ method: "DELETE", body: { confirm: "DELETE" } }),
+    ));
   });
 
   test("staff detail page supports role assignment, direct permissions, and typed delete", async () => {
     request.mockImplementation(async (path, options = {}) => {
       if (path === "/api/admin/staff/staff-1") {
-        return { staff: { id: "staff-1", email: "staff@example.com", roleName: "Moderator", status: "active" } };
+        return { staff: { id: "staff-1", email: "staff@example.com", roleName: "Moderator", status: "removed" } };
       }
       if (path === "/api/admin/staff/staff-1/roles" && options.method === "PUT") {
         return { staffId: "staff-1", roles: [{ id: "role-2", name: "Moderator" }] };
@@ -337,7 +439,7 @@ describe("admin lifecycle and role management", () => {
     await screen.findByText(/staff@example.com/i);
     fireEvent.click(screen.getByRole("checkbox", { name: "Editor" }));
     fireEvent.change(screen.getByLabelText(/Type DELETE to permanently delete/i), { target: { value: "DELETE" } });
-    fireEvent.click(screen.getByRole("button", { name: "DELETE" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Permanently" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith(
       "/api/admin/staff/staff-1",
       expect.objectContaining({ method: "DELETE", body: { confirm: "DELETE" } }),
@@ -376,6 +478,106 @@ describe("admin lifecycle and role management", () => {
       "/api/admin/roles/role-1",
       expect.objectContaining({ method: "DELETE" }),
     ));
+  });
+
+  test("change password submits the existing staff contract and surfaces backend messages", async () => {
+    request.mockImplementation(async (path, options = {}) => {
+      if (path === "/api/user/change-password" && options.method === "POST") {
+        expect(options.body).toEqual({
+          currentPassword: "OldPass123!",
+          newPassword: "NewStrongPass123!",
+          repeatNewPassword: "NewStrongPass123!",
+        });
+        expect(options.csrfToken).toBe("staff-csrf");
+        expect(options.headers.Authorization).toBe("Bearer staff-token");
+        return { ok: true, message: "Password changed successfully." };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(
+      <AuthContext.Provider value={{ state: createAuthState(), setState: vi.fn() }}>
+        <MemoryRouter initialEntries={["/change-password"]}>
+          <Routes>
+            <Route path="/change-password" element={<ChangePasswordPage />} />
+            <Route path="/login" element={<div>Staff Login</div>} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Current Password/i), { target: { value: "OldPass123!" } });
+    fireEvent.change(screen.getAllByLabelText(/^New Password$/i)[0], { target: { value: "NewStrongPass123!" } });
+    fireEvent.change(screen.getByLabelText(/Repeat New Password/i), { target: { value: "NewStrongPass123!" } });
+    expect(screen.getByRole("button", { name: /Update Password/i }).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Update Password/i }));
+
+    await waitFor(() => expect(screen.getByText(/Password changed successfully\./i)).toBeTruthy());
+    expect(screen.getByLabelText(/Current Password/i).value).toBe("");
+    expect(screen.getAllByLabelText(/^New Password$/i)[0].value).toBe("");
+    expect(screen.getByLabelText(/Repeat New Password/i).value).toBe("");
+  });
+
+  test("change password shows the backend message for a safe validation error", async () => {
+    request.mockImplementation(async (path) => {
+      if (path === "/api/user/change-password") {
+        const error = new Error("Current password is incorrect.");
+        error.status = 400;
+        error.payload = { message: "Current password is incorrect." };
+        throw error;
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(
+      <AuthContext.Provider value={{ state: createAuthState(), setState: vi.fn() }}>
+        <MemoryRouter initialEntries={["/change-password"]}>
+          <Routes>
+            <Route path="/change-password" element={<ChangePasswordPage />} />
+            <Route path="/login" element={<div>Staff Login</div>} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Current Password/i), { target: { value: "WrongPass123!" } });
+    fireEvent.change(screen.getAllByLabelText(/^New Password$/i)[0], { target: { value: "NewStrongPass123!" } });
+    fireEvent.change(screen.getByLabelText(/Repeat New Password/i), { target: { value: "NewStrongPass123!" } });
+    fireEvent.click(screen.getByRole("button", { name: /Update Password/i }));
+
+    await screen.findByText(/Current password is incorrect\./i);
+    expect(screen.getByLabelText(/Current Password/i)).toBeTruthy();
+  });
+
+  test("change password routes invalid staff sessions back to the staff login page", async () => {
+    request.mockImplementation(async (path) => {
+      if (path === "/api/user/change-password") {
+        const error = new Error("Unauthorized");
+        error.status = 401;
+        throw error;
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(
+      <AuthContext.Provider value={{ state: createAuthState(), setState: vi.fn() }}>
+        <MemoryRouter initialEntries={["/change-password"]}>
+          <Routes>
+            <Route path="/change-password" element={<ChangePasswordPage />} />
+            <Route path="/login" element={<div>Staff Login</div>} />
+            <Route path="/admin/login" element={<div>MasterAdmin Login</div>} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Current Password/i), { target: { value: "WrongPass123!" } });
+    fireEvent.change(screen.getAllByLabelText(/^New Password$/i)[0], { target: { value: "NewStrongPass123!" } });
+    fireEvent.change(screen.getByLabelText(/Repeat New Password/i), { target: { value: "NewStrongPass123!" } });
+    fireEvent.click(screen.getByRole("button", { name: /Update Password/i }));
+
+    await screen.findByText("Staff Login");
+    expect(screen.queryByText("MasterAdmin Login")).toBeNull();
   });
 });
 

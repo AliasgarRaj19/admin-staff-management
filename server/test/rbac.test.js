@@ -213,6 +213,10 @@ dbTest("staff roles, direct permissions, and effective permissions use live DB t
     .set(authHeaders(staffToken))
     .expect(200);
   await request(app)
+    .get("/api/staff/access-check/pages.read")
+    .set(authHeaders(staffToken))
+    .expect(200);
+  await request(app)
     .get("/api/staff/access-check/pages/create")
     .set(authHeaders(staffToken))
     .expect(403);

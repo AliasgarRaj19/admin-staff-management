@@ -5,6 +5,7 @@ import { hashPassword, verifyPassword, randomToken, hashSecret } from "../lib/cr
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/jwt.js";
 import { sendEmail } from "./email.js";
 import { env } from "../config/env.js";
+import { validatePassword, validatePasswordConfirmation } from "../lib/validation.js";
 
 const REFRESH_HANDOFF_WINDOW_MS = 5_000;
 
@@ -200,4 +201,47 @@ export async function getCurrentStaff(staffId) {
     status: staff.status,
     registeredAt: staff.registeredAt,
   };
+}
+
+export async function changeStaffPassword({ staffId, currentPassword, newPassword, confirmNewPassword }) {
+  validatePassword(newPassword);
+  validatePasswordConfirmation(newPassword, confirmNewPassword);
+  const staff = await prisma.staffAccount.findUnique({ where: { id: staffId } });
+  if (!staff || staff.status !== "active") return { status: "unauthorized" };
+  if (!staff.passwordHash || !(await verifyPassword(staff.passwordHash, String(currentPassword ?? "")))) {
+    return { status: "invalid_current_password" };
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  await prisma.$transaction(async (tx) => {
+    await tx.staffAccount.update({
+      where: { id: staffId },
+      data: {
+        passwordHash,
+        updatedAt: new Date(),
+      },
+    });
+    await tx.staffRefreshToken.updateMany({
+      where: { staffAccountId: staffId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await tx.auditLog.create({
+      data: {
+        id: crypto.randomUUID(),
+        actorType: AUDIT_ACTOR_TYPES.STAFF,
+        actorId: staffId,
+        actorStaffAccountId: staffId,
+        action: "staff.auth.password_changed",
+        resourceType: "staff_account",
+        resourceId: staffId,
+        result: AUDIT_RESULTS.SUCCESS,
+        metadata: { staffAccountId: staffId },
+        ipAddress: null,
+        userAgent: null,
+        createdAt: new Date(),
+      },
+    });
+  });
+
+  return { status: "ok" };
 }
