@@ -69,11 +69,11 @@ Conceptually:
 
 ```nginx
 location /admin-staff/ {
-  proxy_pass http://127.0.0.1:5801;
+  proxy_pass http://127.0.0.1:5506;
 }
 
 location /admin-staff/api/ {
-  proxy_pass http://127.0.0.1:5500;
+  proxy_pass http://127.0.0.1:5505;
 }
 ```
 
@@ -113,4 +113,3 @@ Production SMTP is env-driven through:
 ## Secret Scan
 
 - `.env`, `.env.production`, RSA private keys, and `secrets/` remain excluded from Git and Docker builds.
-

@@ -12,8 +12,8 @@ function read(relativePath) {
 
 test("production compose pins the API and client to loopback and mounts JWT secrets read-only", () => {
   const compose = read("docker-compose.prod.yml");
-  assert.match(compose, /127\.0\.0\.1:5500:5500/);
-  assert.match(compose, /127\.0\.0\.1:5801:80/);
+  assert.match(compose, /127\.0\.0\.1:5505:5500/);
+  assert.match(compose, /127\.0\.0\.1:5506:80/);
   assert.match(compose, /\/run\/secrets\/jwt:ro/);
   assert.match(compose, /cap_drop:/);
   assert.match(compose, /no-new-privileges:true/);
