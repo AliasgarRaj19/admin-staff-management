@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { rateLimit, rateLimitPresets } from "../lib/limiter.js";
-import { newCsrfToken } from "../lib/cookies.js";
+import { newCsrfToken, requireCsrf } from "../lib/cookies.js";
 import {
   clearMasterAdminAuthCookies,
   getCurrentMasterAdmin,
@@ -43,7 +43,7 @@ router.post("/refresh", rateLimit((req) => `master-admin-refresh:${req.ip}`, rat
   res.json({ accessToken: result.accessToken, csrfToken, user: result.user });
 });
 
-router.post("/logout", rateLimit((req) => `master-admin-logout:${req.ip}`, rateLimitPresets.staffLogout), async (req, res) => {
+router.post("/logout", rateLimit((req) => `master-admin-logout:${req.ip}`, rateLimitPresets.staffLogout), requireCsrf("masterAdmin"), async (req, res) => {
   if (req.cookies[masterAdminAuthCookieNames.refreshToken]) {
     await logoutMasterAdmin(req.cookies[masterAdminAuthCookieNames.refreshToken]);
   }

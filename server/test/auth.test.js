@@ -85,6 +85,14 @@ async function seedMasterAdmin({ username }) {
   });
 }
 
+function cookieNames(setCookie = []) {
+  return setCookie.map((entry) => entry.split(";")[0]);
+}
+
+function cookieValue(setCookie = [], name) {
+  return cookieNames(setCookie).find((entry) => entry.startsWith(`${name}=`))?.split("=")[1] || "";
+}
+
 dbTest("active staff login succeeds and returns RS256 staff access token", async () => {
   const staff = await seedStaff({ email: `${prefix}_active@example.com`, status: "active" });
   const result = await loginStaff(staff.email, "StrongPass123");
@@ -165,7 +173,10 @@ dbTest("route-level login/refresh/logout/me flow preserves cookies and rejects c
 
   assert.equal(loginRes.body.accessToken.length > 0, true);
   assert.equal(loginRes.body.user.email, staff.email);
-  assert.match(JSON.stringify(loginRes.headers["set-cookie"] || []), /refreshToken=/);
+  assert.match(JSON.stringify(loginRes.headers["set-cookie"] || []), /staffRefreshToken=/);
+  assert.match(JSON.stringify(loginRes.headers["set-cookie"] || []), /staffCsrfToken=/);
+  assert.doesNotMatch(JSON.stringify(loginRes.headers["set-cookie"] || []), /masterAdminRefreshToken=/);
+  assert.doesNotMatch(JSON.stringify(loginRes.headers["set-cookie"] || []), /masterAdminCsrfToken=/);
   assert.match(JSON.stringify(loginRes.headers["set-cookie"] || []), /HttpOnly/i);
   assert.match(JSON.stringify(loginRes.headers["set-cookie"] || []), /Path=\//i);
   assert.match(JSON.stringify(loginRes.headers["set-cookie"] || []), /SameSite=Lax/i);
@@ -211,7 +222,9 @@ dbTest("route-level login/refresh/logout/me flow preserves cookies and rejects c
 
   assert.equal(refreshRes.body.user.id, staff.id);
   assert.equal(refreshRes.body.accessToken.length > 0, true);
-  assert.match(JSON.stringify(refreshRes.headers["set-cookie"] || []), /refreshToken=/);
+  assert.match(JSON.stringify(refreshRes.headers["set-cookie"] || []), /staffRefreshToken=/);
+  assert.match(JSON.stringify(refreshRes.headers["set-cookie"] || []), /staffCsrfToken=/);
+  assert.doesNotMatch(JSON.stringify(refreshRes.headers["set-cookie"] || []), /masterAdminRefreshToken=/);
 
   const retryRes = await request(app)
     .post("/api/staff/auth/refresh")
@@ -235,13 +248,14 @@ dbTest("route-level login/refresh/logout/me flow preserves cookies and rejects c
 
   const logoutRes = await request(app)
     .post("/api/staff/auth/logout")
+    .set("x-csrf-token", cookieValue(refreshRes.headers["set-cookie"], "staffCsrfToken"))
     .set("Cookie", refreshRes.headers["set-cookie"])
     .expect(200);
   assert.equal(logoutRes.body.ok, true);
   await request(app)
     .post("/api/staff/auth/logout")
     .set("Cookie", refreshRes.headers["set-cookie"])
-    .expect(200);
+    .expect(403);
 
   await request(app)
     .post("/api/staff/auth/refresh")
@@ -268,6 +282,8 @@ dbTest("master admin login/refresh/logout/me flow uses its own cookie namespace"
   assert.equal(loginRes.body.user.username, masterAdmin.username);
   assert.match(JSON.stringify(loginRes.headers["set-cookie"] || []), /masterAdminRefreshToken=/);
   assert.match(JSON.stringify(loginRes.headers["set-cookie"] || []), /masterAdminCsrfToken=/);
+  assert.doesNotMatch(JSON.stringify(loginRes.headers["set-cookie"] || []), /staffRefreshToken=/);
+  assert.doesNotMatch(JSON.stringify(loginRes.headers["set-cookie"] || []), /staffCsrfToken=/);
 
   const cookieJar = loginRes.headers["set-cookie"];
   const refreshRes = await request(app)
@@ -277,6 +293,7 @@ dbTest("master admin login/refresh/logout/me flow uses its own cookie namespace"
   assert.equal(refreshRes.body.user.id, masterAdmin.id);
   assert.equal(refreshRes.body.user.username, masterAdmin.username);
   assert.match(JSON.stringify(refreshRes.headers["set-cookie"] || []), /masterAdminRefreshToken=/);
+  assert.match(JSON.stringify(refreshRes.headers["set-cookie"] || []), /masterAdminCsrfToken=/);
 
   const retryRes = await request(app)
     .post("/api/master-admin/auth/refresh")
@@ -299,6 +316,7 @@ dbTest("master admin login/refresh/logout/me flow uses its own cookie namespace"
 
   await request(app)
     .post("/api/master-admin/auth/logout")
+    .set("x-csrf-token", cookieValue(refreshRes.headers["set-cookie"], "masterAdminCsrfToken"))
     .set("Cookie", refreshRes.headers["set-cookie"])
     .expect(200);
 
@@ -306,6 +324,89 @@ dbTest("master admin login/refresh/logout/me flow uses its own cookie namespace"
     .post("/api/master-admin/auth/refresh")
     .set("Cookie", refreshRes.headers["set-cookie"])
     .expect(401);
+});
+
+dbTest("staff and master admin cookie pairs can coexist without overwriting each other", async () => {
+  const staff = await seedStaff({ email: `${prefix}_coexist@example.com`, status: "active" });
+  const masterAdmin = await seedMasterAdmin({ username: `${prefix}_coexist_admin` });
+
+  const staffLogin = await request(app)
+    .post("/api/staff/auth/login")
+    .send({ email: staff.email, password: "StrongPass123" })
+    .expect(200);
+
+  const adminLogin = await request(app)
+    .post("/api/master-admin/auth/login")
+    .send({ username: masterAdmin.username, password: "MasterPass123" })
+    .expect(200);
+
+  const combinedJar = [...staffLogin.headers["set-cookie"], ...adminLogin.headers["set-cookie"]];
+
+  const staffRefresh = await request(app)
+    .post("/api/staff/auth/refresh")
+    .set("Cookie", combinedJar)
+    .expect(200);
+  const adminRefresh = await request(app)
+    .post("/api/master-admin/auth/refresh")
+    .set("Cookie", combinedJar)
+    .expect(200);
+  const rotatedJar = [...staffRefresh.headers["set-cookie"], ...adminRefresh.headers["set-cookie"]];
+
+  assert.equal(staffRefresh.body.user.email, staff.email);
+  assert.equal(adminRefresh.body.user.username, masterAdmin.username);
+  assert.match(JSON.stringify(combinedJar), /staffRefreshToken=/);
+  assert.match(JSON.stringify(combinedJar), /staffCsrfToken=/);
+  assert.match(JSON.stringify(combinedJar), /masterAdminRefreshToken=/);
+  assert.match(JSON.stringify(combinedJar), /masterAdminCsrfToken=/);
+
+  const staffLogout = await request(app)
+    .post("/api/staff/auth/logout")
+    .set("x-csrf-token", cookieValue(staffRefresh.headers["set-cookie"], "staffCsrfToken"))
+    .set("Cookie", rotatedJar)
+    .expect(200);
+  const staffLogoutCookies = JSON.stringify(staffLogout.headers["set-cookie"] || []);
+  assert.match(staffLogoutCookies, /staffRefreshToken=/);
+  assert.match(staffLogoutCookies, /staffCsrfToken=/);
+  assert.doesNotMatch(staffLogoutCookies, /masterAdminRefreshToken=/);
+  assert.doesNotMatch(staffLogoutCookies, /masterAdminCsrfToken=/);
+
+  const adminLogout = await request(app)
+    .post("/api/master-admin/auth/logout")
+    .set("x-csrf-token", cookieValue(adminRefresh.headers["set-cookie"], "masterAdminCsrfToken"))
+    .set("Cookie", rotatedJar)
+    .expect(200);
+  const adminLogoutCookies = JSON.stringify(adminLogout.headers["set-cookie"] || []);
+  assert.match(adminLogoutCookies, /masterAdminRefreshToken=/);
+  assert.match(adminLogoutCookies, /masterAdminCsrfToken=/);
+  assert.doesNotMatch(adminLogoutCookies, /staffRefreshToken=/);
+  assert.doesNotMatch(adminLogoutCookies, /staffCsrfToken=/);
+});
+
+dbTest("cross-domain csrf cookies cannot satisfy the other domain", async () => {
+  const staff = await seedStaff({ email: `${prefix}_csrf@example.com`, status: "active" });
+  const masterAdmin = await seedMasterAdmin({ username: `${prefix}_csrf_admin` });
+
+  const staffLogin = await request(app)
+    .post("/api/staff/auth/login")
+    .send({ email: staff.email, password: "StrongPass123" })
+    .expect(200);
+
+  const adminLogin = await request(app)
+    .post("/api/master-admin/auth/login")
+    .send({ username: masterAdmin.username, password: "MasterPass123" })
+    .expect(200);
+
+  await request(app)
+    .post("/api/staff/auth/logout")
+    .set("x-csrf-token", cookieValue(adminLogin.headers["set-cookie"], "masterAdminCsrfToken"))
+    .set("Cookie", staffLogin.headers["set-cookie"])
+    .expect(403);
+
+  await request(app)
+    .post("/api/master-admin/auth/logout")
+    .set("x-csrf-token", cookieValue(staffLogin.headers["set-cookie"], "staffCsrfToken"))
+    .set("Cookie", adminLogin.headers["set-cookie"])
+    .expect(403);
 });
 
 dbTest("concurrent replay of refresh A yields one successor and one retry with exact DB state", async () => {
