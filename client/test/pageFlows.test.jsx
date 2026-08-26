@@ -27,6 +27,14 @@ function renderWithAuth(ui, state) {
   );
 }
 
+function renderWithAuthRoute(initialEntry, element, state) {
+  return render(
+    <AuthContext.Provider value={{ state, setState: vi.fn() }}>
+      <MemoryRouter initialEntries={[initialEntry]}>{element}</MemoryRouter>
+    </AuthContext.Provider>,
+  );
+}
+
 function createAuthState(overrides = {}) {
   return {
     staff: {
@@ -272,7 +280,7 @@ describe("admin lifecycle and role management", () => {
     renderWithAuth(<AdminStaffListPage />, createAdminState());
 
     await screen.findByText("staff@example.com");
-    fireEvent.click(screen.getByRole("button", { name: "Blocked" }));
+    fireEvent.click(screen.getByRole("button", { name: "Blocked Staff" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith(
       "/api/admin/staff?status=blocked",
       expect.any(Object),
@@ -368,5 +376,154 @@ describe("admin lifecycle and role management", () => {
       "/api/admin/roles/role-1",
       expect.objectContaining({ method: "DELETE" }),
     ));
+  });
+});
+
+describe("invited staff management", () => {
+  function createAdminState() {
+    return createAuthState({
+      masterAdmin: {
+        role: "masterAdmin",
+        accessToken: "admin-token",
+        csrfToken: "admin-csrf",
+        user: { id: "admin-1", username: "admin" },
+      },
+    });
+  }
+
+  test("invited staff tab renders safe invitation fields only", async () => {
+    request.mockImplementation(async (path) => {
+      if (path === "/api/admin/staff/invitations?status=pending") {
+        return {
+          invitations: [{
+            id: "inv-1",
+            staffAccountId: "staff-1",
+            email: "invite@example.com",
+            roleName: "Support Lead",
+            status: "pending",
+            createdAt: "2026-08-26T00:00:00.000Z",
+            expiresAt: "2026-08-28T00:00:00.000Z",
+            invitedByType: "master_admin",
+            tokenHash: "secret-hash",
+            rawToken: "secret-token",
+          }],
+        };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    renderWithAuthRoute("/admin/staff?tab=invited", <Routes><Route path="/admin/staff" element={<AdminStaffListPage />} /></Routes>, createAdminState());
+
+    await screen.findByText("invite@example.com");
+    expect(screen.getByText(/Designation: Support Lead/i)).toBeTruthy();
+    expect(screen.getByText(/Status: pending/i)).toBeTruthy();
+    expect(screen.getByText(/Invited By: master_admin/i)).toBeTruthy();
+    expect(screen.queryByText(/secret-hash/i)).toBeNull();
+    expect(screen.queryByText(/secret-token/i)).toBeNull();
+    expect(screen.getByRole("button", { name: "Resend Invitation" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Revoke Invitation" })).toBeTruthy();
+  });
+
+  test("create invitation redirects to invited staff and shows the new row immediately", async () => {
+    const pendingInvitations = [];
+    request.mockImplementation(async (path, options = {}) => {
+      if (path === "/api/admin/staff/invitations" && options.method === "POST") {
+        const invitation = {
+          id: `inv-${pendingInvitations.length + 1}`,
+          staffAccountId: `staff-${pendingInvitations.length + 1}`,
+          email: options.body.email,
+          roleName: options.body.roleName,
+          status: "pending",
+          createdAt: "2026-08-26T00:00:00.000Z",
+          expiresAt: "2026-08-28T00:00:00.000Z",
+          invitedByType: "master_admin",
+        };
+        pendingInvitations.unshift(invitation);
+        return { invitation, staffAccount: { id: invitation.staffAccountId }, invitationUrl: "https://example.test/admin-staff/staff/register?token=raw-token", token: "raw-token" };
+      }
+      if (path === "/api/admin/staff/invitations?status=pending") {
+        return { invitations: pendingInvitations };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(
+      <AuthContext.Provider value={{ state: createAdminState(), setState: vi.fn() }}>
+        <MemoryRouter initialEntries={["/admin/staff/new"]}>
+          <Routes>
+            <Route path="/admin/staff/new" element={<AdminInviteStaffPage />} />
+            <Route path="/admin/staff" element={<AdminStaffListPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Email Address/i), { target: { value: "invite@example.com" } });
+    fireEvent.change(screen.getByLabelText(/Role \/ Designation/i), { target: { value: "Support Lead" } });
+    fireEvent.click(screen.getByRole("button", { name: /Create Invitation/i }));
+
+    await waitFor(() => expect(screen.getByText("Invitation created successfully.")).toBeTruthy());
+    await screen.findByText("invite@example.com");
+  });
+
+  test("resend and revoke invitation actions call backend and refresh the pending list", async () => {
+    const pendingInvitations = [{
+      id: "inv-1",
+      staffAccountId: "staff-1",
+      email: "invite@example.com",
+      roleName: "Support Lead",
+      status: "pending",
+      createdAt: "2026-08-26T00:00:00.000Z",
+      expiresAt: "2026-08-28T00:00:00.000Z",
+      invitedByType: "master_admin",
+    }];
+    const calls = [];
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    request.mockImplementation(async (path, options = {}) => {
+      calls.push([path, options]);
+      if (path === "/api/admin/staff/invitations?status=pending") {
+        return { invitations: pendingInvitations };
+      }
+      if (path === "/api/admin/staff/invitations/staff-1/resend" && options.method === "POST") {
+        pendingInvitations[0] = { ...pendingInvitations[0], id: "inv-2", createdAt: "2026-08-26T01:00:00.000Z" };
+        return { invitation: pendingInvitations[0], staffAccount: { id: "staff-1" } };
+      }
+      if (path === "/api/admin/staff/invitations/staff-1/revoke" && options.method === "POST") {
+        pendingInvitations.length = 0;
+        return { invitationId: "inv-2", staffAccount: { id: "staff-1" } };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    renderWithAuthRoute("/admin/staff?tab=invited", <Routes><Route path="/admin/staff" element={<AdminStaffListPage />} /></Routes>, createAdminState());
+
+    await screen.findByText("invite@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Resend Invitation" }));
+    await waitFor(() => expect(calls.some(([path, options]) => path === "/api/admin/staff/invitations/staff-1/resend" && options.method === "POST")).toBe(true));
+    await waitFor(() => expect(screen.getByText("Invitation resent successfully.")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke Invitation" }));
+    await waitFor(() => expect(calls.some(([path, options]) => path === "/api/admin/staff/invitations/staff-1/revoke" && options.method === "POST")).toBe(true));
+    await waitFor(() => expect(screen.getByText("Invitation revoked.")).toBeTruthy());
+    await waitFor(() => expect(screen.queryByText("invite@example.com")).toBeNull());
+
+    window.confirm.mockRestore();
+  });
+
+  test("registered staff tab does not include invited users", async () => {
+    request.mockImplementation(async (path) => {
+      if (path === "/api/admin/staff?status=active") {
+        return { staff: [{ id: "staff-1", email: "active@example.com", roleName: "Moderator", status: "active" }] };
+      }
+      if (path === "/api/admin/staff/invitations?status=pending") {
+        return { invitations: [{ id: "inv-1", staffAccountId: "staff-2", email: "invite@example.com", roleName: "Support Lead", status: "pending", createdAt: "2026-08-26T00:00:00.000Z", expiresAt: "2026-08-28T00:00:00.000Z", invitedByType: "master_admin" }] };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    renderWithAuthRoute("/admin/staff?tab=registered", <Routes><Route path="/admin/staff" element={<AdminStaffListPage />} /></Routes>, createAdminState());
+
+    await screen.findByText("active@example.com");
+    expect(screen.queryByText("invite@example.com")).toBeNull();
   });
 });

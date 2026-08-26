@@ -8,6 +8,7 @@ import { recordAuditEvent } from "../lib/audit.js";
 
 export function createAdminInvitationsRouter({
   repository = createStaffRepository(prisma),
+  prismaClient = prisma,
   createInvitation = defaultCreateInvitation,
   resendInvitation = defaultResendInvitation,
   revokeInvitation = defaultRevokeInvitation,
@@ -20,10 +21,23 @@ export function createAdminInvitationsRouter({
   const router = Router();
   router.use(requireAuth);
 
-  router.get("/staff/invitations", async (_req, res) => {
-    const invitations = await prisma.staffInvitation.findMany();
+  router.get("/staff/invitations", async (req, res) => {
+    const status = String(req.query?.status || "pending").trim() || "pending";
+    const invitations = await prismaClient.staffInvitation.findMany({
+      where: { status },
+      orderBy: [{ createdAt: "desc" }],
+    });
     res.json({
-      invitations: invitations.sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt)),
+      invitations: invitations.map((invitation) => ({
+        id: invitation.id,
+        staffAccountId: invitation.staffAccountId,
+        email: invitation.email,
+        roleName: invitation.roleName,
+        status: invitation.status,
+        expiresAt: invitation.expiresAt,
+        createdAt: invitation.createdAt,
+        invitedByType: invitation.invitedByType,
+      })),
     });
   });
 

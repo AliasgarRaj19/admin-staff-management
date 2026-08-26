@@ -608,47 +608,147 @@ function MiniStat({ label, value }) {
 
 function AdminStaffListPage() {
   const auth = useAuth();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [staff, setStaff] = useState([]);
-  const [status, setStatus] = useState("active");
+  const [invitations, setInvitations] = useState([]);
   const [message, setMessage] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const tab = searchParams.get("tab") || "registered";
+  const isInvitedTab = tab === "invited";
+  const isRegisteredTab = tab === "registered";
+  const isBlockedTab = tab === "blocked";
+  const isRemovedTab = tab === "removed";
 
-  async function load(nextStatus = status) {
+  useEffect(() => {
+    if (location.state?.flashMessage) {
+      setMessage(location.state.flashMessage);
+    }
+  }, [location.state]);
+
+  async function loadStaff(nextStatus) {
     const data = await request(`/api/admin/staff?status=${encodeURIComponent(nextStatus)}`, {
       headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
     });
     setStaff(data.staff || []);
   }
 
+  async function loadInvitations() {
+    const data = await request("/api/admin/staff/invitations?status=pending", {
+      headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+    });
+    setInvitations(data.invitations || []);
+  }
+
   useEffect(() => {
-    load().catch(() => setStaff([]));
-  }, [auth.state.masterAdmin.accessToken, status]);
+    if (isInvitedTab) {
+      loadInvitations().catch(() => setInvitations([]));
+      return;
+    }
+    if (isRegisteredTab) {
+      loadStaff("active").catch(() => setStaff([]));
+      return;
+    }
+    if (isBlockedTab) {
+      loadStaff("blocked").catch(() => setStaff([]));
+      return;
+    }
+    if (isRemovedTab) {
+      loadStaff("removed").catch(() => setStaff([]));
+    }
+  }, [auth.state.masterAdmin.accessToken, tab]);
 
   async function runLifecycle(path, body) {
     setMessage("");
     try {
       await request(path, {
-        method: path.endsWith("/unblock") || path.endsWith("/restore") ? "POST" : "POST",
+        method: "POST",
         headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
         body,
       });
       broadcastPermissionChange("staff");
-      await load();
+      if (isInvitedTab) {
+        await loadInvitations();
+      } else if (isRegisteredTab) {
+        await loadStaff("active");
+      } else if (isBlockedTab) {
+        await loadStaff("blocked");
+      } else if (isRemovedTab) {
+        await loadStaff("removed");
+      }
       setMessage("Staff record updated successfully.");
     } catch (error) {
       setMessage(error.message);
     }
   }
 
+  async function handleInviteAction(action, item) {
+    const confirmed = window.confirm(action === "resend"
+      ? `Resend invitation to ${item.email}?`
+      : `Revoke invitation for ${item.email}?`);
+    if (!confirmed) return;
+    setBusyId(item.staffAccountId);
+    setMessage("");
+    try {
+      const endpoint = action === "resend"
+        ? `/api/admin/staff/invitations/${item.staffAccountId}/resend`
+        : `/api/admin/staff/invitations/${item.staffAccountId}/revoke`;
+      await request(endpoint, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+      });
+      broadcastPermissionChange("staff");
+      await loadInvitations();
+      setMessage(action === "resend" ? "Invitation resent successfully." : "Invitation revoked.");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusyId("");
+    }
+  }
+
   return (
-    <Shell title="Manage Staff" aside={<LinkButton to="/admin/dashboard">Back to Dashboard</LinkButton>}>
+    <Shell
+      title="Manage Staff"
+      aside={
+        <div className="stack">
+          <LinkButton to="/admin/staff/new">Invite Staff</LinkButton>
+          <LinkButton to="/admin/dashboard">Back to Dashboard</LinkButton>
+        </div>
+      }
+    >
       <div className="stack">
         <Notice tone={message.includes("success") ? "success" : "error"}>{message}</Notice>
         <div className="button-row">
-          <Button variant={status === "active" ? "primary" : "secondary"} onClick={() => setStatus("active")}>Registered</Button>
-          <Button variant={status === "blocked" ? "primary" : "secondary"} onClick={() => setStatus("blocked")}>Blocked</Button>
-          <Button variant={status === "removed" ? "primary" : "secondary"} onClick={() => setStatus("removed")}>Removed</Button>
+          <Button variant={isInvitedTab ? "primary" : "secondary"} onClick={() => setSearchParams({ tab: "invited" })}>Invited Staff</Button>
+          <Button variant={isRegisteredTab ? "primary" : "secondary"} onClick={() => setSearchParams({ tab: "registered" })}>Registered Staff</Button>
+          <Button variant={isBlockedTab ? "primary" : "secondary"} onClick={() => setSearchParams({ tab: "blocked" })}>Blocked Staff</Button>
+          <Button variant={isRemovedTab ? "primary" : "secondary"} onClick={() => setSearchParams({ tab: "removed" })}>Removed Staff</Button>
         </div>
-        {staff.map((item) => (
+        {isInvitedTab ? (
+          invitations.length === 0 ? (
+            <Notice tone="info">No pending invitations right now.</Notice>
+          ) : invitations.map((item) => (
+            <article className="detail-card" key={item.id}>
+              <h3>{item.email}</h3>
+              <p>Designation: {item.roleName}</p>
+              <p>Status: {item.status}</p>
+              <p>Invited At: {item.createdAt ? new Date(item.createdAt).toLocaleString() : "n/a"}</p>
+              <p>Expires At: {item.expiresAt ? new Date(item.expiresAt).toLocaleString() : "n/a"}</p>
+              <p>Invited By: {item.invitedByType || "n/a"}</p>
+              <div className="button-row">
+                <Button variant="secondary" disabled={busyId === item.staffAccountId} onClick={() => handleInviteAction("resend", item)}>
+                  {busyId === item.staffAccountId ? "Processing..." : "Resend Invitation"}
+                </Button>
+                <Button variant="danger" disabled={busyId === item.staffAccountId} onClick={() => handleInviteAction("revoke", item)}>
+                  {busyId === item.staffAccountId ? "Processing..." : "Revoke Invitation"}
+                </Button>
+              </div>
+            </article>
+          ))
+        ) : staff.length === 0 ? (
+          <Notice tone="info">No staff found for this category.</Notice>
+        ) : staff.map((item) => (
           <article className="detail-card" key={item.id}>
             <h3>{item.email}</h3>
             <p>Designation: {item.roleName}</p>
@@ -678,14 +778,14 @@ function AdminInviteStaffPage() {
   async function submit(event) {
     event.preventDefault();
     try {
-      await request("/api/admin/staff/invitations", {
+      const result = await request("/api/admin/staff/invitations", {
         method: "POST",
         body: form,
         headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
       });
       setMessage("Invitation created successfully.");
       setForm({ email: "", roleName: "Moderator" });
-      navigate("/admin/staff", { replace: true });
+      navigate("/admin/staff?tab=invited", { replace: true, state: { flashMessage: "Invitation created successfully." } });
     } catch (error) {
       setMessage(error.message);
     }
