@@ -5,9 +5,13 @@ import cors from "cors";
 import { env } from "./config/env.js";
 import { getAccessJwks } from "./lib/jwt.js";
 import { authRouter } from "./routes/auth.js";
+import { masterAdminAuthRouter } from "./routes/masterAdminAuth.js";
 import { userRouter } from "./routes/user.js";
 import { adminRouter } from "./routes/admin.js";
+import { adminAuditRouter } from "./routes/adminAudit.js";
+import { adminInvitationsRouter } from "./routes/adminInvitations.js";
 import { staffAccessRouter } from "./routes/staffAccess.js";
+import { staffInvitationAccessRouter } from "./routes/staffInvitationAccess.js";
 
 export function createApp() {
   const app = express();
@@ -41,9 +45,13 @@ export function createApp() {
     }
   });
   app.use("/api/staff/auth", authRouter);
+  app.use("/api/master-admin/auth", masterAdminAuthRouter);
   app.use("/api/staff/access-check", staffAccessRouter);
+  app.use("/api/admin", adminInvitationsRouter);
+  app.use("/api/staff/invitations", staffInvitationAccessRouter);
   app.use("/api/user", userRouter);
   app.use("/api/admin", adminRouter);
+  app.use("/api/admin", adminAuditRouter);
   app.use((err, _req, res, _next) => {
     const status = err?.name === "ZodError" ? 400 : 500;
     if (env.NODE_ENV !== "production") console.error(err);

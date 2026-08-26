@@ -3,6 +3,7 @@ import { loginSchema } from "../lib/validators.js";
 import { rateLimit, rateLimitPresets } from "../lib/limiter.js";
 import { clearCookieOptions, cookieOptions, newCsrfToken } from "../lib/cookies.js";
 import { getCurrentStaff, loginStaff, logoutStaff, refreshStaffSession } from "../services/auth.js";
+import { getStaffPermissionsWithSources } from "../services/rbac.js";
 import { requireStaffAuth } from "../middleware/auth.js";
 
 const router = Router();
@@ -42,6 +43,11 @@ router.get("/me", requireStaffAuth, async (req, res) => {
   const staff = await getCurrentStaff(req.staff.id);
   if (!staff) return res.status(401).json({ message: "Unauthorized" });
   res.json({ user: staff });
+});
+
+router.get("/permissions", requireStaffAuth, async (req, res) => {
+  const permissions = await getStaffPermissionsWithSources(req.staff.id);
+  res.json(permissions);
 });
 
 export { router as authRouter };

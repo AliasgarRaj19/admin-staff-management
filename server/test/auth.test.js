@@ -256,6 +256,58 @@ dbTest("route-level login/refresh/logout/me flow preserves cookies and rejects c
   assert.equal(masterAdminCount, 0);
 });
 
+dbTest("master admin login/refresh/logout/me flow uses its own cookie namespace", async () => {
+  const masterAdmin = await seedMasterAdmin({ username: `${prefix}_master` });
+
+  const loginRes = await request(app)
+    .post("/api/master-admin/auth/login")
+    .send({ username: masterAdmin.username, password: "MasterPass123" })
+    .expect(200);
+
+  assert.equal(loginRes.body.accessToken.length > 0, true);
+  assert.equal(loginRes.body.user.username, masterAdmin.username);
+  assert.match(JSON.stringify(loginRes.headers["set-cookie"] || []), /masterAdminRefreshToken=/);
+  assert.match(JSON.stringify(loginRes.headers["set-cookie"] || []), /masterAdminCsrfToken=/);
+
+  const cookieJar = loginRes.headers["set-cookie"];
+  const refreshRes = await request(app)
+    .post("/api/master-admin/auth/refresh")
+    .set("Cookie", cookieJar)
+    .expect(200);
+  assert.equal(refreshRes.body.user.id, masterAdmin.id);
+  assert.equal(refreshRes.body.user.username, masterAdmin.username);
+  assert.match(JSON.stringify(refreshRes.headers["set-cookie"] || []), /masterAdminRefreshToken=/);
+
+  const retryRes = await request(app)
+    .post("/api/master-admin/auth/refresh")
+    .set("Cookie", cookieJar)
+    .expect(409);
+  assert.equal(retryRes.body.message, "REFRESH_RETRY");
+
+  const meRes = await request(app)
+    .get("/api/master-admin/auth/me")
+    .set("Authorization", `Bearer ${refreshRes.body.accessToken}`)
+    .expect(200);
+  assert.equal(meRes.body.user.username, masterAdmin.username);
+
+  const auditRes = await request(app)
+    .get("/api/admin/audit-logs")
+    .set("Authorization", `Bearer ${refreshRes.body.accessToken}`)
+    .expect(200);
+  assert.equal(Array.isArray(auditRes.body.auditLogs), true);
+  assert.equal(typeof auditRes.body.total, "number");
+
+  await request(app)
+    .post("/api/master-admin/auth/logout")
+    .set("Cookie", refreshRes.headers["set-cookie"])
+    .expect(200);
+
+  await request(app)
+    .post("/api/master-admin/auth/refresh")
+    .set("Cookie", refreshRes.headers["set-cookie"])
+    .expect(401);
+});
+
 dbTest("concurrent replay of refresh A yields one successor and one retry with exact DB state", async () => {
   const staff = await seedStaff({ email: `${prefix}_concurrent@example.com`, status: "active" });
   const loginRes = await request(app)

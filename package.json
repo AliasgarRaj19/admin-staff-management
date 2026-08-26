@@ -2,10 +2,11 @@
   "name": "admin-staff-management",
   "private": true,
   "workspaces": [
-    "server"
+    "server",
+    "client"
   ],
   "scripts": {
-    "test": "npm test -w server",
-    "build": "npm run build -w server"
+    "test": "npm test -w server && npm test -w client",
+    "build": "npm run build -w server && npm run build -w client"
   }
 }
