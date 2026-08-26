@@ -164,13 +164,13 @@ describe("staff dashboard and permissions", () => {
     expect(screen.queryByText("Pages Read Access")).toBeNull();
   });
 
-  test("role CRUD form submits the provided role data", async () => {
+  test("role CRUD form submits only role data and no permission keys", async () => {
     request.mockImplementation(async (path, options = {}) => {
       if (path === "/api/admin/roles") {
         if (options.method === "POST") {
           return { role: { id: "role-1", name: options.body.name } };
         }
-        return { roles: [] };
+        return { roles: [{ id: "role-1", name: "Moderator", description: "Writes content", permissionKeys: ["pages.read"] }] };
       }
       return {};
     });
@@ -185,7 +185,6 @@ describe("staff dashboard and permissions", () => {
     }));
 
     fireEvent.change(screen.getByLabelText(/Role Name/i), { target: { value: "  Sales Manager  " } });
-    fireEvent.change(screen.getByLabelText(/Permission Keys/i), { target: { value: "pages.read, pages.edit" } });
     fireEvent.click(screen.getByRole("button", { name: /Create Role/i }));
 
     await waitFor(() => expect(request).toHaveBeenCalledWith(
@@ -194,25 +193,51 @@ describe("staff dashboard and permissions", () => {
         method: "POST",
         body: expect.objectContaining({
           name: "  Sales Manager  ",
-          permissionKeys: ["pages.read", "pages.edit"],
+          description: "",
+        }),
+      }),
+    ));
+    expect(screen.queryByLabelText(/Permission Keys/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/Existing Role/i), { target: { value: "role-1" } });
+    await waitFor(() => expect(screen.getByLabelText(/Role Name/i).value).toBe("Moderator"));
+    expect(screen.queryByText(/Permissions:/i)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Role Name/i), { target: { value: "Editorial Team" } });
+    fireEvent.click(screen.getByRole("button", { name: /Update Role/i }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      "/api/admin/roles/role-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: expect.objectContaining({
+          name: "Editorial Team",
+          description: "Writes content",
         }),
       }),
     ));
   });
 
-  test("permission assignment page renders target selectors", async () => {
+  test("permission keys page renders canonical permissions and loads selected role permissions", async () => {
     request.mockImplementation(async (path) => {
       if (path === "/api/admin/permissions") {
         return {
-          groups: { pages: [{ id: "perm-1", key: "pages.read", displayName: "Read Pages" }] },
-          permissions: [{ id: "perm-1", key: "pages.read", displayName: "Read Pages" }],
+          groups: {
+            pages: [{ id: "perm-1", key: "pages.read", displayName: "Read Pages" }],
+            blog: [{ id: "perm-2", key: "blog.edit", displayName: "Edit Blog" }],
+          },
+          permissions: [
+            { id: "perm-1", key: "pages.read", displayName: "Read Pages" },
+            { id: "perm-2", key: "blog.edit", displayName: "Edit Blog" },
+          ],
         };
       }
       if (path === "/api/admin/staff?status=active") {
         return { staff: [{ id: "staff-1", email: "staff@example.com" }] };
       }
       if (path === "/api/admin/roles") {
-        return { roles: [{ id: "role-1", name: "Moderator" }] };
+        return { roles: [{ id: "role-1", name: "Moderator", permissionKeys: ["pages.read"] }] };
+      }
+      if (path === "/api/admin/staff/staff-1/permissions") {
+        return { staffId: "staff-1", permissions: [{ key: "blog.edit" }] };
       }
       return {};
     });
@@ -226,9 +251,24 @@ describe("staff dashboard and permissions", () => {
       },
     }));
 
-    await screen.findByText("Read Pages");
+    await screen.findByText("Permission Keys");
     expect(screen.getByText("Role permissions")).toBeTruthy();
     expect(screen.getByText("Staff direct permissions")).toBeTruthy();
+    expect(screen.getByText("Read Pages")).toBeTruthy();
+    expect(screen.getByText("Edit Blog")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Security Role/i), { target: { value: "role-1" } });
+    await waitFor(() => expect(screen.getByLabelText(/Read Pages/i)).toBeTruthy());
+    expect(screen.getByLabelText(/Read Pages/i).checked).toBe(true);
+    expect(screen.getByLabelText(/Edit Blog/i).checked).toBe(false);
+    fireEvent.click(screen.getByLabelText(/Edit Blog/i));
+    fireEvent.click(screen.getByRole("button", { name: /Save Permissions/i }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      "/api/admin/roles/role-1/permissions",
+      expect.objectContaining({
+        method: "PUT",
+        body: expect.objectContaining({ permissionKeys: ["pages.read", "blog.edit"] }),
+      }),
+    ));
   });
 
   test("staff dashboard renders permission-driven navigation", async () => {

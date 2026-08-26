@@ -194,16 +194,14 @@ export async function createRole({ actor, name, description = null, permissionId
   });
 }
 
-export async function updateRole({ roleId, actor, name, description = null, permissionIds = [], permissionKeys = [] }) {
+export async function updateRole({ roleId, actor, name, description = null }) {
   const normalizedName = normalizeRbacRoleName(name);
   const normalizedDescription = normalizeRbacRoleDescription(description);
-  const identifiers = [...permissionIds, ...permissionKeys];
   return prisma.$transaction(async (tx) => {
     const current = await tx.role.findUnique({ where: { id: roleId } });
     if (!current) return { outcome: "not_found" };
     const duplicate = await tx.role.findUnique({ where: { name: normalizedName } });
     if (duplicate && duplicate.id !== roleId) return { outcome: "conflict" };
-    const permissions = await resolvePermissions(tx, identifiers);
     await tx.role.update({
       where: { id: roleId },
       data: {
@@ -212,13 +210,6 @@ export async function updateRole({ roleId, actor, name, description = null, perm
         updatedAt: new Date(),
       },
     });
-    await tx.rolePermission.deleteMany({ where: { roleId } });
-    if (permissions.length) {
-      await tx.rolePermission.createMany({
-        data: permissions.map((permission) => ({ roleId, permissionId: permission.id })),
-        skipDuplicates: true,
-      });
-    }
     const updated = await tx.role.findUnique({ where: { id: roleId } });
     const summary = await summarizeRole(tx, updated);
     await writeAudit(tx, {

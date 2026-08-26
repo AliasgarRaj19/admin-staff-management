@@ -131,10 +131,17 @@ dbTest("role CRUD, permission replacement, and deletion safety work", async () =
   const update = await request(app)
     .patch(`/api/admin/roles/${roleId}`)
     .set(authHeaders(token))
-    .send({ name: "Editorial Team", description: "Updated", permissionKeys: ["pages.read"] })
+    .send({ name: "Editorial Team", description: "Updated" })
     .expect(200);
   assert.equal(update.body.role.name, "Editorial Team");
-  assert.deepEqual(update.body.role.permissionKeys, ["pages.read"]);
+  assert.deepEqual(update.body.role.permissionKeys, ["pages.edit", "pages.read"]);
+
+  const updatedPermissions = await request(app)
+    .put(`/api/admin/roles/${roleId}/permissions`)
+    .set(authHeaders(token))
+    .send({ permissionKeys: ["pages.read"] })
+    .expect(200);
+  assert.deepEqual(updatedPermissions.body.role.permissionKeys, ["pages.read"]);
 
   const other = await request(app)
     .post("/api/admin/roles")

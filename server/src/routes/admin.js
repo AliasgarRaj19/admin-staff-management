@@ -105,8 +105,6 @@ router.patch("/roles/:id", async (req, res) => {
       actor: { actorType: "master_admin", actorId: req.masterAdmin.id },
       name: body.name,
       description: body.description ?? null,
-      permissionIds: body.permissionIds ?? [],
-      permissionKeys: body.permissionKeys ?? [],
     });
     return mapRoleOutcome(res, result);
   } catch (error) {

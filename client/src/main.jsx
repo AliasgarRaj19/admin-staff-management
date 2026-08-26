@@ -707,7 +707,7 @@ function AdminDashboardPage() {
         <div className="link-grid">
           <LinkButton to="/admin/staff">Manage Staff</LinkButton>
           <LinkButton to="/admin/roles">Manage Roles</LinkButton>
-          <LinkButton to="/admin/permissions">Direct Permissions</LinkButton>
+          <LinkButton to="/admin/permissions">Permission Keys</LinkButton>
           <LinkButton to="/admin/audit-logs">Audit Log</LinkButton>
         </div>
       </div>
@@ -1251,7 +1251,7 @@ function AdminStaffDetailPage() {
 function AdminRolesPage() {
   const auth = useAuth();
   const [roles, setRoles] = useState([]);
-  const [form, setForm] = useState({ name: "", description: "", permissionKeys: "" });
+  const [form, setForm] = useState({ name: "", description: "" });
   const [selectedRoleId, setSelectedRoleId] = useState("");
   const [message, setMessage] = useState("");
 
@@ -1269,7 +1269,6 @@ function AdminRolesPage() {
       setForm({
         name: role.name || "",
         description: role.description || "",
-        permissionKeys: (role.permissionKeys || []).join(", "),
       });
     }
   }, [selectedRoleId, roles]);
@@ -1280,7 +1279,6 @@ function AdminRolesPage() {
     const body = {
       name: form.name,
       description: form.description,
-      permissionKeys: form.permissionKeys.split(",").map((value) => value.trim()).filter(Boolean),
     };
     try {
       if (selectedRoleId) {
@@ -1305,7 +1303,7 @@ function AdminRolesPage() {
         setMessage("Role created successfully.");
       }
       broadcastPermissionChange("staff");
-      setForm({ name: "", description: "", permissionKeys: "" });
+      setForm({ name: "", description: "" });
       setSelectedRoleId("");
       await load();
     } catch (error) {
@@ -1345,7 +1343,6 @@ function AdminRolesPage() {
           </label>
           <Field label="Role Name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           <TextArea label="Description" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-          <Field label="Permission Keys (comma separated)" value={form.permissionKeys} onChange={(event) => setForm({ ...form, permissionKeys: event.target.value })} />
           <div className="button-row">
             <Button>{selectedRoleId ? "Update Role" : "Create Role"}</Button>
             {selectedRoleId ? <Button type="button" variant="danger" onClick={() => deleteRole(selectedRoleId)}>Delete Role</Button> : null}
@@ -1356,7 +1353,6 @@ function AdminRolesPage() {
             <article className="detail-card" key={role.id}>
               <h3>{role.name}</h3>
               <p>{role.description || "No description."}</p>
-              <p>Permissions: {role.permissionKeys?.join(", ") || "None"}</p>
               <div className="button-row">
                 <Button type="button" variant="secondary" onClick={() => setSelectedRoleId(role.id)}>Edit</Button>
                 <Button type="button" variant="danger" onClick={() => deleteRole(role.id)}>Delete</Button>
@@ -1395,6 +1391,30 @@ function AdminPermissionsPage() {
     })().catch(() => {});
   }, [auth.state.masterAdmin.accessToken]);
 
+  useEffect(() => {
+    if (!targetId) {
+      setSelected([]);
+      return;
+    }
+    if (mode === "role") {
+      const role = roles.find((item) => item.id === targetId);
+      setSelected([...(role?.permissionKeys || [])]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await request(`/api/admin/staff/${targetId}/permissions`, {
+          headers: { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` },
+        });
+        if (!cancelled) setSelected((data.permissions || []).map((permission) => permission.key));
+      } catch {
+        if (!cancelled) setSelected([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [auth.state.masterAdmin.accessToken, mode, roles, targetId]);
+
   async function submit(event) {
     event.preventDefault();
     const headers = { Authorization: `Bearer ${auth.state.masterAdmin.accessToken}` };
@@ -1427,7 +1447,7 @@ function AdminPermissionsPage() {
   }
 
   return (
-    <Shell title="Direct Permissions" aside={<LinkButton to="/admin/dashboard">Back to Dashboard</LinkButton>}>
+    <Shell title="Permission Keys" aside={<LinkButton to="/admin/dashboard">Back to Dashboard</LinkButton>}>
       <form className="stack" onSubmit={submit}>
         <Notice tone={message.includes("success") ? "success" : "error"}>{message}</Notice>
         <p className="subtle">Module focus: {moduleFilter || "all"}</p>
@@ -1439,12 +1459,20 @@ function AdminPermissionsPage() {
           </select>
         </label>
         <label className="field">
-          <span>{mode === "role" ? "Role" : "Staff Member"}</span>
+          <span>{mode === "role" ? "Security Role" : "Staff Member"}</span>
           <select value={targetId} onChange={(event) => setTargetId(event.target.value)}>
             <option value="">Select one</option>
             {(mode === "role" ? roles : staffList).map((item) => <option key={item.id} value={item.id}>{item.name || item.email}</option>)}
           </select>
         </label>
+        <section className="detail-card">
+          <h3>{mode === "role" ? "Assigned Role Permissions" : "Assigned Staff Direct Permissions"}</h3>
+          <p className="subtle">
+            {mode === "role"
+              ? "Select an existing role to review and replace its permissions."
+              : "Select a staff account to review and replace its direct permissions."}
+          </p>
+        </section>
         <div className="permission-grid">
           {Object.entries(registry.groups || {}).filter(([moduleName]) => !moduleFilter || moduleName.toLowerCase() === moduleFilter.toLowerCase()).map(([moduleName, items]) => (
             <section className="detail-card" key={moduleName}>
