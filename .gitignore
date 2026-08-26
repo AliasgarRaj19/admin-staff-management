@@ -8,3 +8,5 @@ server/.env
 server/.env.*
 !server/.env.example
 !server/.env.production.example
+
+client/dist/
