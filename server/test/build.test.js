@@ -7,6 +7,7 @@ const root = new URL("..", import.meta.url);
 for (const relativePath of [
   "prisma/schema.prisma",
   "prisma/migrations/20260825000000_initial/migration.sql",
+  "prisma/migrations/20260826000000_staff_invitation_inviter_identity/migration.sql",
   "prisma/migration_lock.toml",
   "src/domain/staff.js",
   "src/domain/permissions.js",

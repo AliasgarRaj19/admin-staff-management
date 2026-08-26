@@ -37,23 +37,13 @@ dbTest("real DB invitation acceptance and audit trail", async () => {
   await cleanup();
   const email = `${testPrefix}_invite@example.com`;
   const auditResource = `${testPrefix}_invite_resource`;
-  await prisma.staffAccount.create({
+  const masterAdmin = await prisma.masterAdmin.create({
     data: {
       id: `${testPrefix}_master`,
+      username: `${testPrefix}_master`,
       email: `${testPrefix}_master@example.com`,
-      roleName: "Moderator",
+      passwordHash: "hash",
       status: "active",
-      firstName: null,
-      lastName: null,
-      phone: null,
-      passwordHash: null,
-      invitedAt: null,
-      registeredAt: null,
-      activatedAt: null,
-      blockedAt: null,
-      removedAt: null,
-      createdAt: now,
-      updatedAt: now,
     },
   });
   const invitationResult = await createInvitation({
@@ -61,10 +51,11 @@ dbTest("real DB invitation acceptance and audit trail", async () => {
     clientUrl,
     email,
     roleName: "Support Lead",
+    invitedByType: "master_admin",
     invitedById: `${testPrefix}_master`,
     now,
     sendEmail: async () => {},
-    audit: async (tx, event) => tx.insertAuditLog({ ...event, actorId: `${testPrefix}_master`, resourceId: auditResource }),
+    audit: async (tx, event) => tx.insertAuditLog({ ...event, actorType: "master_admin", actorId: masterAdmin.id, resourceId: auditResource }),
   });
 
   const storedAccount = await prisma.staffAccount.findUnique({ where: { email } });
@@ -73,6 +64,8 @@ dbTest("real DB invitation acceptance and audit trail", async () => {
   const storedInvitation = await prisma.staffInvitation.findUnique({ where: { tokenHash: invitationResult.invitation.tokenHash } });
   assert.equal(storedInvitation.tokenHash, hashToken(invitationResult.token));
   assert.equal(storedInvitation.email, email);
+  assert.equal(storedInvitation.invitedByType, "master_admin");
+  assert.equal(storedInvitation.invitedById, masterAdmin.id);
 
   const validation = await validateInvitation({ repository, token: invitationResult.token, now });
   assert.equal(validation.valid, true);
@@ -114,7 +107,7 @@ dbTest("real DB invitation acceptance and audit trail", async () => {
   assert.equal(await prisma.staffRole.count(), 0);
   const masterAdminCount = await prisma.masterAdmin.count();
   const masterAdminRefreshCount = await prisma.masterAdminRefreshToken.count();
-  assert.equal(masterAdminCount, 0);
+  assert.equal(masterAdminCount, 1);
   assert.equal(masterAdminRefreshCount, 0);
 });
 
@@ -149,8 +142,8 @@ dbTest("double acceptance fails safely", async () => {
 dbTest("resend invalidates old invitation and reuses staff account", async () => {
   await cleanup();
   const email = `${testPrefix}_resend@example.com`;
-  const invitationResult = await createInvitation({ repository, clientUrl, email, now, sendEmail: async () => {} });
-  const resendResult = await resendInvitation({ repository, clientUrl, staffAccountId: invitationResult.staffAccount.id, now, sendEmail: async () => {} });
+  const invitationResult = await createInvitation({ repository, clientUrl, email, invitedByType: "master_admin", invitedById: `${testPrefix}_master`, now, sendEmail: async () => {} });
+  const resendResult = await resendInvitation({ repository, clientUrl, staffAccountId: invitationResult.staffAccount.id, invitedByType: "master_admin", invitedById: `${testPrefix}_master`, now, sendEmail: async () => {} });
   const oldValidation = await validateInvitation({ repository, token: invitationResult.token, now });
   const newValidation = await validateInvitation({ repository, token: resendResult.token, now });
   assert.equal(oldValidation.valid, false);

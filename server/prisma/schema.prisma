@@ -93,6 +93,8 @@ model StaffRefreshToken {
 model StaffInvitation {
   id              String                   @id @default(cuid())
   staffAccountId  String?
+  invitedByType   String                   @default("master_admin")
+  invitedById     String?
   email           String
   tokenHash       String                   @unique
   roleName        String?

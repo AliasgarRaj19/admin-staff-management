@@ -20,7 +20,11 @@ test("refresh tokens are unique and support lineage fields", () => {
 });
 
 test("invitations and password resets keep token hashes unique", () => {
+  const invitationBlock = schema.match(/model StaffInvitation\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
   assert.match(schema, /model StaffInvitation[\s\S]*tokenHash\s+String\s+@unique/);
+  assert.match(invitationBlock, /invitedByType\s+String\s+@default\("master_admin"\)/);
+  assert.match(invitationBlock, /invitedById\s+String\?/);
+  assert.doesNotMatch(invitationBlock, /invitedById\s+String\?[^\n]*@relation/);
   assert.match(schema, /model StaffPasswordReset[\s\S]*tokenHash\s+String\s+@unique/);
 });
 
