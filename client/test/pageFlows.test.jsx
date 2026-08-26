@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import {
   AdminInviteStaffPage,
@@ -359,9 +359,19 @@ describe("admin lifecycle and role management", () => {
     expect(screen.getByRole("button", { name: "Delete Permanently" })).toBeTruthy();
   });
 
-  test("permanent delete requires DELETE confirmation and sends the correct body", async () => {
+  test("removed staff opens a delete confirmation modal and sends the correct body on success", async () => {
     request.mockImplementation(async (path, options = {}) => {
+      if (path === "/api/admin/staff?status=active") {
+        return { staff: [] };
+      }
+      if (path === "/api/admin/staff?status=blocked") {
+        return { staff: [] };
+      }
+      if (path === "/api/admin/staff?status=removed") {
+        return { staff: [{ id: "staff-1", email: "removed@example.com", roleName: "Moderator", status: "removed" }] };
+      }
       if (path === "/api/admin/staff/staff-1" && options.method === "DELETE") {
+        expect(options.body).toEqual({ confirm: "DELETE" });
         return { ok: true };
       }
       if (path === "/api/admin/staff/staff-1") {
@@ -370,30 +380,84 @@ describe("admin lifecycle and role management", () => {
       return {};
     });
 
-    render(
-      <AuthContext.Provider value={{ state: createAdminState(), setState: vi.fn() }}>
-        <MemoryRouter initialEntries={["/admin/staff/staff-1"]}>
-          <Routes>
-            <Route path="/admin/staff/:id" element={<AdminStaffDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </AuthContext.Provider>,
-    );
-
+    renderWithAuth(<AdminStaffListPage />, createAdminState());
+    fireEvent.click(screen.getByRole("button", { name: "Removed Staff" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      "/api/admin/staff?status=removed",
+      expect.any(Object),
+    ));
     await screen.findByText(/removed@example.com/i);
-    expect(screen.getByLabelText(/Type DELETE to permanently delete/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Delete Permanently" }).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText(/Type DELETE to permanently delete/i), { target: { value: "DELETE" } });
+    expect(screen.queryByLabelText(/Type DELETE to confirm permanent deletion/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Delete Permanently" }));
+    const dialog = await screen.findByRole("dialog", { name: /Delete Staff Permanently/i });
+    const dialogScope = within(dialog);
+    expect(dialogScope.getByText("This action cannot be undone.")).toBeTruthy();
+    expect(dialogScope.getByLabelText(/Type DELETE to confirm permanent deletion/i).value).toBe("");
+    expect(dialogScope.getByRole("button", { name: "Delete Permanently" }).disabled).toBe(true);
+    fireEvent.change(dialogScope.getByLabelText(/Type DELETE to confirm permanent deletion/i), { target: { value: "delete" } });
+    expect(dialogScope.getByRole("button", { name: "Delete Permanently" }).disabled).toBe(true);
+    fireEvent.change(dialogScope.getByLabelText(/Type DELETE to confirm permanent deletion/i), { target: { value: "DEL" } });
+    expect(dialogScope.getByRole("button", { name: "Delete Permanently" }).disabled).toBe(true);
+    fireEvent.change(dialogScope.getByLabelText(/Type DELETE to confirm permanent deletion/i), { target: { value: "DELETE" } });
+    expect(dialogScope.getByRole("button", { name: "Delete Permanently" }).disabled).toBe(false);
+    fireEvent.click(dialogScope.getByRole("button", { name: "Delete Permanently" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith(
       "/api/admin/staff/staff-1",
       expect.objectContaining({ method: "DELETE", body: { confirm: "DELETE" } }),
     ));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByText(/Staff permanently deleted\./i)).toBeTruthy();
   });
 
-  test("staff detail page supports role assignment, direct permissions, and typed delete", async () => {
+  test("delete confirmation modal supports cancel and safe backend errors", async () => {
+    request.mockImplementation(async (path, options = {}) => {
+      if (path === "/api/admin/staff?status=active") {
+        return { staff: [] };
+      }
+      if (path === "/api/admin/staff?status=blocked") {
+        return { staff: [] };
+      }
+      if (path === "/api/admin/staff?status=removed") {
+        return { staff: [{ id: "staff-1", email: "removed@example.com", roleName: "Moderator", status: "removed" }] };
+      }
+      if (path === "/api/admin/staff/staff-1" && options.method === "DELETE") {
+        const error = new Error("Forbidden");
+        error.payload = { message: "This staff member cannot be deleted right now." };
+        error.status = 400;
+        throw error;
+      }
+      return {};
+    });
+
+    renderWithAuth(<AdminStaffListPage />, createAdminState());
+    fireEvent.click(screen.getByRole("button", { name: "Removed Staff" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      "/api/admin/staff?status=removed",
+      expect.any(Object),
+    ));
+    await screen.findByText(/removed@example.com/i);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Permanently" }));
+    const dialog = await screen.findByRole("dialog", { name: /Delete Staff Permanently/i });
+    const dialogScope = within(dialog);
+    fireEvent.click(dialogScope.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Permanently" }));
+    const reopenedDialog = await screen.findByRole("dialog", { name: /Delete Staff Permanently/i });
+    const reopenedScope = within(reopenedDialog);
+    fireEvent.change(reopenedScope.getByLabelText(/Type DELETE to confirm permanent deletion/i), { target: { value: "DELETE" } });
+    fireEvent.click(reopenedScope.getByRole("button", { name: "Delete Permanently" }));
+    await waitFor(() => expect(screen.getByText(/This staff member cannot be deleted right now\./i)).toBeTruthy());
+    expect(screen.getByRole("dialog", { name: /Delete Staff Permanently/i })).toBeTruthy();
+  });
+
+  test("staff detail page supports role assignment, direct permissions, and delete confirmation modal", async () => {
     request.mockImplementation(async (path, options = {}) => {
       if (path === "/api/admin/staff/staff-1") {
+        if (options.method === "DELETE") {
+          expect(options.body).toEqual({ confirm: "DELETE" });
+          return { ok: true };
+        }
         return { staff: { id: "staff-1", email: "staff@example.com", roleName: "Moderator", status: "removed" } };
       }
       if (path === "/api/admin/staff/staff-1/roles" && options.method === "PUT") {
@@ -420,9 +484,6 @@ describe("admin lifecycle and role management", () => {
           permissions: [{ id: "perm-1", key: "pages.read", displayName: "Read Pages" }],
         };
       }
-      if (path === "/api/admin/staff/staff-1" && options.method === "DELETE") {
-        return { ok: true };
-      }
       return {};
     });
 
@@ -438,8 +499,11 @@ describe("admin lifecycle and role management", () => {
 
     await screen.findByText(/staff@example.com/i);
     fireEvent.click(screen.getByRole("checkbox", { name: "Editor" }));
-    fireEvent.change(screen.getByLabelText(/Type DELETE to permanently delete/i), { target: { value: "DELETE" } });
     fireEvent.click(screen.getByRole("button", { name: "Delete Permanently" }));
+    const dialog = await screen.findByRole("dialog", { name: /Delete Staff Permanently/i });
+    const dialogScope = within(dialog);
+    fireEvent.change(dialogScope.getByLabelText(/Type DELETE to confirm permanent deletion/i), { target: { value: "DELETE" } });
+    fireEvent.click(dialogScope.getByRole("button", { name: "Delete Permanently" }));
     await waitFor(() => expect(request).toHaveBeenCalledWith(
       "/api/admin/staff/staff-1",
       expect.objectContaining({ method: "DELETE", body: { confirm: "DELETE" } }),

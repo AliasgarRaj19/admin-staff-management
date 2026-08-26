@@ -124,7 +124,7 @@ function getSafeErrorMessage(error) {
   return error?.payload?.message || error?.message || "Request failed";
 }
 
-function LifecycleActions({ item, onAction, onDelete, csrfToken, showManagementLinks = false, deleteConfirmValue = "", onDeleteConfirmChange = null }) {
+function LifecycleActions({ item, onAction, onDeleteRequest, csrfToken, showManagementLinks = false }) {
   const status = String(item.status || "").toLowerCase();
   const isRemoved = status === "removed";
   const isBlocked = status === "blocked";
@@ -140,20 +140,44 @@ function LifecycleActions({ item, onAction, onDelete, csrfToken, showManagementL
       {isBlocked ? <Button variant="secondary" onClick={() => onAction(`/api/admin/staff/${item.id}/unblock`, { method: "POST", csrfToken })}>Unblock</Button> : null}
       {isBlocked ? <Button variant="secondary" onClick={() => onAction(`/api/admin/staff/${item.id}/remove`, { method: "POST", csrfToken })}>Remove</Button> : null}
       {isRemoved ? <Button variant="secondary" onClick={() => onAction(`/api/admin/staff/${item.id}/restore`, { method: "POST", csrfToken })}>Restore</Button> : null}
-      {isRemoved ? (
+      {isRemoved ? <Button variant="danger" onClick={() => onDeleteRequest?.(item)}>Delete Permanently</Button> : null}
+    </div>
+  );
+}
+
+function DeleteConfirmationModal({ open, title, message, errorMessage, value, busy, onChange, onCancel, onConfirm }) {
+  if (!open) return null;
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
         <div className="stack">
-          {typeof onDeleteConfirmChange === "function" ? (
-            <label className="field">
-              <span>Type DELETE to permanently delete</span>
-              <input
-                value={deleteConfirmValue}
-                onChange={(event) => onDeleteConfirmChange(event.target.value)}
-              />
-            </label>
-          ) : null}
-          <Button variant="danger" onClick={onDelete} disabled={deleteConfirmValue !== "DELETE"}>Delete Permanently</Button>
+          <div className="stack">
+            <h3 id="delete-modal-title">{title}</h3>
+            <p>{message}</p>
+          </div>
+          <Notice tone={errorMessage ? "error" : "info"}>{errorMessage || "Type DELETE to confirm permanent deletion."}</Notice>
+          <label className="field">
+            <span>Type DELETE to confirm permanent deletion.</span>
+            <input
+              autoFocus
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  onCancel();
+                }
+              }}
+            />
+          </label>
+          <div className="button-row">
+            <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>
+            <Button type="button" variant="danger" disabled={busy || value !== "DELETE"} onClick={onConfirm}>
+              {busy ? "Deleting..." : "Delete Permanently"}
+            </Button>
+          </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -708,7 +732,10 @@ function AdminStaffListPage() {
   const [invitations, setInvitations] = useState([]);
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState("");
-  const [confirmDeleteId, setConfirmDeleteId] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteValue, setDeleteValue] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const tab = searchParams.get("tab") || "registered";
   const isInvitedTab = tab === "invited";
   const isRegisteredTab = tab === "registered";
@@ -808,6 +835,43 @@ function AdminStaffListPage() {
     }
   }
 
+  function openDeleteModal(item) {
+    setDeleteTarget(item);
+    setDeleteValue("");
+    setDeleteError("");
+  }
+
+  function closeDeleteModal() {
+    if (deleteBusy) return;
+    setDeleteTarget(null);
+    setDeleteValue("");
+    setDeleteError("");
+  }
+
+  async function confirmPermanentDelete() {
+    if (!deleteTarget || deleteValue !== "DELETE" || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await request(`/api/admin/staff/${deleteTarget.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+          ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+        },
+        body: { confirm: "DELETE" },
+      });
+      broadcastPermissionChange("staff");
+      await loadStaff("removed");
+      setMessage("Staff permanently deleted.");
+      closeDeleteModal();
+    } catch (error) {
+      setDeleteError(getSafeErrorMessage(error));
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   return (
     <Shell
       title="Manage Staff"
@@ -861,13 +925,7 @@ function AdminStaffListPage() {
                   item={item}
                   csrfToken={auth.state.masterAdmin.csrfToken}
                   onAction={runLifecycle}
-                  deleteConfirmValue={confirmDeleteId === item.id ? "DELETE" : ""}
-                  onDeleteConfirmChange={(value) => setConfirmDeleteId(value === "DELETE" ? item.id : "")}
-                  onDelete={async () => {
-                    if (confirmDeleteId !== item.id) return;
-                    await runLifecycle(`/api/admin/staff/${item.id}`, { confirm: "DELETE" }, "DELETE");
-                    setConfirmDeleteId("");
-                  }}
+                  onDeleteRequest={openDeleteModal}
                 />
               </div>
             ) : (
@@ -876,12 +934,23 @@ function AdminStaffListPage() {
                 csrfToken={auth.state.masterAdmin.csrfToken}
                 onAction={runLifecycle}
                 showManagementLinks={true}
-                onDelete={() => {}}
+                onDeleteRequest={openDeleteModal}
               />
             )}
           </article>
         ))}
       </div>
+      <DeleteConfirmationModal
+        open={Boolean(deleteTarget)}
+        title="Delete Staff Permanently"
+        message="This action cannot be undone."
+        errorMessage={deleteError}
+        value={deleteValue}
+        busy={deleteBusy}
+        onChange={setDeleteValue}
+        onCancel={closeDeleteModal}
+        onConfirm={confirmPermanentDelete}
+      />
     </Shell>
   );
 }
@@ -934,7 +1003,10 @@ function AdminStaffDetailPage() {
   const [permissionRegistry, setPermissionRegistry] = useState({ groups: {}, permissions: [] });
   const [selectedRoleIds, setSelectedRoleIds] = useState([]);
   const [selectedPermissionKeys, setSelectedPermissionKeys] = useState([]);
-  const [confirmDelete, setConfirmDelete] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteValue, setDeleteValue] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const [message, setMessage] = useState("");
 
   async function load() {
@@ -987,12 +1059,48 @@ function AdminStaffDetailPage() {
           Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
           ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
         },
-        body: path.endsWith(`/${detail?.id}`) ? { confirm: confirmDelete } : undefined,
       });
       broadcastPermissionChange("staff");
       await load();
     } catch (error) {
       setMessage(getSafeErrorMessage(error));
+    }
+  }
+
+  function openDeleteModal() {
+    setDeleteOpen(true);
+    setDeleteValue("");
+    setDeleteError("");
+  }
+
+  function closeDeleteModal() {
+    if (deleteBusy) return;
+    setDeleteOpen(false);
+    setDeleteValue("");
+    setDeleteError("");
+  }
+
+  async function confirmPermanentDelete() {
+    if (!detail || deleteValue !== "DELETE" || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await request(`/api/admin/staff/${detail.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${auth.state.masterAdmin.accessToken}`,
+          ...(auth.state.masterAdmin.csrfToken ? { "x-csrf-token": auth.state.masterAdmin.csrfToken } : {}),
+        },
+        body: { confirm: "DELETE" },
+      });
+      broadcastPermissionChange("staff");
+      setMessage("Staff permanently deleted.");
+      await load();
+      closeDeleteModal();
+    } catch (error) {
+      setDeleteError(getSafeErrorMessage(error));
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -1108,9 +1216,7 @@ function AdminStaffDetailPage() {
               item={detail}
               csrfToken={auth.state.masterAdmin.csrfToken}
               onAction={runAction}
-              deleteConfirmValue={confirmDelete}
-              onDeleteConfirmChange={setConfirmDelete}
-              onDelete={() => runAction(`/api/admin/staff/${detail.id}`)}
+              onDeleteRequest={openDeleteModal}
             />
           </div>
           <section className="detail-card">
@@ -1127,6 +1233,17 @@ function AdminStaffDetailPage() {
           </section>
         </div>
       )}
+      <DeleteConfirmationModal
+        open={deleteOpen}
+        title="Delete Staff Permanently"
+        message="This action cannot be undone."
+        errorMessage={deleteError}
+        value={deleteValue}
+        busy={deleteBusy}
+        onChange={setDeleteValue}
+        onCancel={closeDeleteModal}
+        onConfirm={confirmPermanentDelete}
+      />
     </Shell>
   );
 }
