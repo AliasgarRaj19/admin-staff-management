@@ -12,6 +12,12 @@ export function createStaffRepository(db) {
     async findInvitationByTokenHash(tokenHash) {
       return db.staffInvitation.findUnique({ where: { tokenHash } });
     },
+    async listInvitations({ status = "pending" } = {}) {
+      return db.staffInvitation.findMany({
+        where: { status },
+        orderBy: [{ createdAt: "desc" }],
+      });
+    },
     async invalidatePendingInvitations(staffAccountId, now) {
       return db.staffInvitation.updateMany({
         where: { staffAccountId, status: "pending" },

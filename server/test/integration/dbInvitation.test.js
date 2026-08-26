@@ -1,5 +1,7 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
+import express from "express";
+import request from "supertest";
 import { createStaffRepository } from "../../src/repositories/staffRepository.js";
 import { createInvitation, acceptInvitation, resendInvitation, validateInvitation } from "../../src/services/staffOnboarding.js";
 import { hashPassword, verifyPassword } from "../../src/lib/password.js";
@@ -12,10 +14,12 @@ const clientUrl = "https://example.test";
 const testPrefix = `phase25_${Date.now()}`;
 let prisma;
 let repository;
+let createAdminInvitationsRouter;
 
 if (runDbTests) {
   ({ prisma } = await import("../../src/lib/prisma.js"));
   repository = createStaffRepository(prisma);
+  ({ createAdminInvitationsRouter } = await import("../../src/routes/adminInvitations.js"));
 }
 
 async function cleanup(prefix = testPrefix) {
@@ -149,4 +153,59 @@ dbTest("resend invalidates old invitation and reuses staff account", async () =>
   assert.equal(oldValidation.valid, false);
   assert.equal(newValidation.valid, true);
   assert.equal(resendResult.staffAccount.id, invitationResult.staffAccount.id);
+});
+
+dbTest("admin invitation list returns safe pending invitations through the repository path", async () => {
+  await cleanup();
+  const email = `${testPrefix}_list@example.com`;
+  const masterAdmin = await prisma.masterAdmin.create({
+    data: {
+      id: `${testPrefix}_master`,
+      username: `${testPrefix}_master`,
+      email: `${testPrefix}_master@example.com`,
+      passwordHash: "hash",
+      status: "active",
+    },
+  });
+  const invitationResult = await createInvitation({
+    repository,
+    clientUrl,
+    email,
+    roleName: "Test staff",
+    invitedByType: "master_admin",
+    invitedById: masterAdmin.id,
+    now,
+    sendEmail: async () => {},
+  });
+  await prisma.staffInvitation.create({
+    data: {
+      staffAccountId: invitationResult.staffAccount.id,
+      email: `${testPrefix}_revoked@example.com`,
+      tokenHash: hashToken("revoked-token"),
+      roleName: "Test staff",
+      invitedByType: "master_admin",
+      invitedById: masterAdmin.id,
+      status: "revoked",
+      expiresAt: new Date("2026-08-28T00:00:00Z"),
+      acceptedAt: null,
+      revokedAt: now,
+    },
+  });
+
+  const app = express();
+  app.use(express.json());
+  app.use("/api/admin", createAdminInvitationsRouter({
+    repository,
+    requireAuth: (_req, _res, next) => next(),
+    masterAdminFactory: () => ({ invitedByType: "master_admin", invitedById: masterAdmin.id, actorType: "master_admin", actorId: masterAdmin.id }),
+  }));
+
+  const response = await request(app).get("/api/admin/staff/invitations?status=pending").expect(200);
+  assert.equal(response.body.invitations.length, 1);
+  assert.equal(response.body.invitations[0].email, email);
+  assert.equal(response.body.invitations[0].status, "pending");
+  assert.equal(response.body.invitations[0].invitedByType, "master_admin");
+  assert.equal("tokenHash" in response.body.invitations[0], false);
+  assert.equal("rawToken" in response.body.invitations[0], false);
+  assert.equal("passwordHash" in response.body.invitations[0], false);
 });

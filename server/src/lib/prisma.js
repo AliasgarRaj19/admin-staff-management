@@ -204,6 +204,14 @@ function createApi(client) {
   };
 
   const staffInvitation = {
+    async findMany({ where = {}, orderBy = [] } = {}) {
+      const { sql, params } = buildWhere(where);
+      const sort = Array.isArray(orderBy) && orderBy.length > 0
+        ? ` ORDER BY ${orderBy.map((entry) => `"${Object.keys(entry)[0]}" ${String(Object.values(entry)[0]).toUpperCase()}`).join(", ")}`
+        : " ORDER BY \"createdAt\" DESC";
+      const rows = await queryAll(`SELECT * FROM "StaffInvitation"${sql ? ` WHERE ${sql}` : ""}${sort}`, params);
+      return rows.map(mapInvitation);
+    },
     async findFirst({ where = {} }) {
       const { sql, params } = buildWhere(where);
       const row = await queryOne(`SELECT * FROM "StaffInvitation"${sql ? ` WHERE ${sql}` : ""} ORDER BY "createdAt" DESC LIMIT 1`, params);
@@ -710,6 +718,10 @@ function createApi(client) {
     findStaffById: async (id) => staffAccount.findUnique({ where: { id } }),
     findPendingInvitationByStaffAccountId: async (staffAccountId) => staffInvitation.findFirst({ where: { staffAccountId, status: "pending" } }),
     findInvitationByTokenHash: async (tokenHash) => staffInvitation.findUnique({ where: { tokenHash } }),
+    listInvitations: async ({ status = "pending" } = {}) => staffInvitation.findMany({
+      where: { status },
+      orderBy: [{ createdAt: "desc" }],
+    }),
     invalidatePendingInvitations: async (staffAccountId, now) => staffInvitation.updateMany({
       where: { staffAccountId, status: "pending" },
       data: { status: "revoked", revokedAt: now, updatedAt: now },

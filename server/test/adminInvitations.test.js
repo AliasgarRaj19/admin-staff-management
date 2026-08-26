@@ -11,28 +11,23 @@ test("admin invitations list returns only safe fields for pending invitations", 
   app.use(express.json());
   app.use("/api/admin", createAdminInvitationsRouter({
     requireAuth: (_req, _res, next) => next(),
-    prismaClient: {
-      staffInvitation: {
-        findMany: async ({ where, orderBy }) => {
-          assert.deepEqual(where, { status: "pending" });
-          assert.deepEqual(orderBy, [{ createdAt: "desc" }]);
-          return [{
-            id: "inv-1",
-            staffAccountId: "staff-1",
-            email: "invite@example.com",
-            roleName: "Support Lead",
-            status: "pending",
-            createdAt: "2026-08-26T00:00:00.000Z",
-            expiresAt: "2026-08-28T00:00:00.000Z",
-            invitedByType: "master_admin",
-            tokenHash: "secret-hash",
-            rawToken: "secret-token",
-            passwordHash: "secret-password",
-          }];
-        },
-      },
-    },
     repository: {
+      listInvitations: async ({ status }) => {
+        assert.equal(status, "pending");
+        return [{
+          id: "inv-1",
+          staffAccountId: "staff-1",
+          email: "invite@example.com",
+          roleName: "Support Lead",
+          status: "pending",
+          createdAt: "2026-08-26T00:00:00.000Z",
+          expiresAt: "2026-08-28T00:00:00.000Z",
+          invitedByType: "master_admin",
+          tokenHash: "secret-hash",
+          rawToken: "secret-token",
+          passwordHash: "secret-password",
+        }];
+      },
       withTransaction: async (work) => work({}),
       findStaffById: async () => null,
       findPendingInvitationByStaffAccountId: async () => null,
@@ -61,4 +56,3 @@ test("admin invitations list returns only safe fields for pending invitations", 
     process.env.DATABASE_URL = previousDatabaseUrl;
   }
 });
-
