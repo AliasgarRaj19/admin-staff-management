@@ -18,6 +18,7 @@ for (const relativePath of [
   "src/lib/jwt.js",
   "src/lib/cookies.js",
   "src/lib/limiter.js",
+  "src/lib/urls.js",
   "src/lib/email.js",
   "src/lib/validators.js",
   "src/domain/rbac.js",

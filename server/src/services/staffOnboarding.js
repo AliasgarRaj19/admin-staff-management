@@ -1,14 +1,14 @@
 import { AUDIT_ACTOR_TYPES, AUDIT_RESULTS } from "../domain/audit.js";
+import { env } from "../config/env.js";
 import { buildAuditEvent, recordAuditEvent } from "../lib/audit.js";
 import { sendInvitationEmail } from "../lib/email.js";
 import { hashPassword } from "../lib/password.js";
+import { buildClientUrlPath } from "../lib/urls.js";
 import { generateOpaqueToken, hashToken, hoursFromNow } from "../lib/token.js";
 import { normalizeEmail, normalizeName, normalizeOptionalPhone, normalizeRoleName, validatePassword, validatePasswordConfirmation } from "../lib/validation.js";
 
 function safeInvitationUrl(clientUrl, rawToken) {
-  const base = String(clientUrl ?? "").replace(/\/$/, "");
-  if (!base) throw new Error("CLIENT_URL is required.");
-  return `${base}/staff/register?token=${encodeURIComponent(rawToken)}`;
+  return buildClientUrlPath(clientUrl, env.APP_BASE_PATH || "", `/staff/register?token=${encodeURIComponent(rawToken)}`);
 }
 
 async function ensureStaffState(repository, email) {
