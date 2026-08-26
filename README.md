@@ -26,7 +26,7 @@ Canonical Admin + Staff Management System foundation and deployment phases.
 
 1. Pull or clone the repository on the deployment host.
 2. Create a production env file from `.env.production.example`.
-3. Create the RSA secret directory on the host, such as `/opt/admin-staff-management/secrets/jwt`.
+3. Create the RSA secret directory on the host, such as `/opt/general-system/admin-staff-management/secrets/jwt`.
 4. Generate production RSA keypairs with `server/scripts/generate-jwt-keys.mjs`.
 5. Set host ownership and permissions so the mounted private keys are readable by the container group but not writable by the runtime user.
 6. Confirm the production env paths point at `/run/secrets/jwt/...` inside the container.

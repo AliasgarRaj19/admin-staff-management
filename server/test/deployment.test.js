@@ -13,7 +13,8 @@ function read(relativePath) {
 test("production compose pins the API and client to loopback and mounts JWT secrets read-only", () => {
   const compose = read("docker-compose.prod.yml");
   assert.match(compose, /127\.0\.0\.1:5505:5500/);
-  assert.match(compose, /127\.0\.0\.1:5506:80/);
+  assert.match(compose, /127\.0\.0\.1:5506:8080/);
+  assert.match(compose, /\/opt\/general-system\/admin-staff-management\/secrets\/jwt:\/run\/secrets\/jwt:ro/);
   assert.match(compose, /\/run\/secrets\/jwt:ro/);
   assert.match(compose, /cap_drop:/);
   assert.match(compose, /no-new-privileges:true/);
@@ -42,5 +43,13 @@ test("server and client Dockerfiles keep runtime packaging separate", () => {
   assert.match(serverDockerfile, /npm run prisma:generate -w server/);
   assert.match(serverDockerfile, /USER jwtapp/);
   assert.match(clientDockerfile, /VITE_APP_BASE_PATH/);
-  assert.match(clientDockerfile, /nginx:1\.27-alpine/);
+  assert.match(clientDockerfile, /nginxinc\/nginx-unprivileged:1\.27-alpine/);
+  assert.match(clientDockerfile, /EXPOSE 8080/);
+});
+
+test("client nginx config remains rooted at /admin-staff with SPA fallback", () => {
+  const clientNginx = read("client/nginx.conf");
+  assert.match(clientNginx, /listen 8080;/);
+  assert.match(clientNginx, /location \/admin-staff\//);
+  assert.match(clientNginx, /try_files \$uri \$uri\/ \/admin-staff\/index\.html;/);
 });
