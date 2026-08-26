@@ -7,6 +7,7 @@ const root = new URL("..", import.meta.url);
 for (const relativePath of [
   "prisma/schema.prisma",
   "prisma/migrations/20260825000000_initial/migration.sql",
+  "prisma/migration_lock.toml",
   "src/domain/staff.js",
   "src/domain/permissions.js",
   "src/domain/audit.js",
@@ -37,6 +38,9 @@ for (const relativePath of [
   "src/routes/staffAccess.js",
   "src/app.js",
   "src/index.js",
+  "scripts/generate-jwt-keys.mjs",
+  "scripts/bootstrap-master-admin.mjs",
+  "Dockerfile",
 ]) {
   test(`required file exists: ${relativePath}`, () => {
     assert.equal(existsSync(new URL(relativePath, root)), true);

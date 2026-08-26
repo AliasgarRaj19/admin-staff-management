@@ -8,5 +8,7 @@ server/.env
 server/.env.*
 !server/.env.example
 !server/.env.production.example
+server/secrets/
+secrets/
 
 client/dist/

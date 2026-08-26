@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 5500
+      DATABASE_URL: ${DATABASE_URL}
+      CLIENT_URL: ${CLIENT_URL}
+      APP_URL: ${APP_URL}
+      APP_BASE_PATH: ${APP_BASE_PATH}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_ACCESS_PRIVATE_KEY_PATH: /run/secrets/jwt/access-current-private.pem
+      JWT_ACCESS_PUBLIC_KEY_PATH: /run/secrets/jwt/access-current-public.pem
+      JWT_ACCESS_PREVIOUS_PUBLIC_KEY_PATH: ${JWT_ACCESS_PREVIOUS_PUBLIC_KEY_PATH}
+      JWT_ACCESS_KID: ${JWT_ACCESS_KID}
+      JWT_ACCESS_PREVIOUS_KID: ${JWT_ACCESS_PREVIOUS_KID}
+      JWT_REFRESH_PRIVATE_KEY_PATH: /run/secrets/jwt/refresh-current-private.pem
+      JWT_REFRESH_PUBLIC_KEY_PATH: /run/secrets/jwt/refresh-current-public.pem
+      JWT_REFRESH_PREVIOUS_PUBLIC_KEY_PATH: ${JWT_REFRESH_PREVIOUS_PUBLIC_KEY_PATH}
+      JWT_REFRESH_KID: ${JWT_REFRESH_KID}
+      JWT_REFRESH_PREVIOUS_KID: ${JWT_REFRESH_PREVIOUS_KID}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_SECURE: ${SMTP_SECURE}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      MASTER_ADMIN_USERNAME: ${MASTER_ADMIN_USERNAME}
+      MASTER_ADMIN_PASSWORD: ${MASTER_ADMIN_PASSWORD}
+      MASTER_ADMIN_EMAIL: ${MASTER_ADMIN_EMAIL}
+    volumes:
+      - /opt/admin-staff-management/secrets/jwt:/run/secrets/jwt:ro
+    ports:
+      - "127.0.0.1:5500:5500"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/admin-staff/api}
+        VITE_APP_BASE_PATH: ${VITE_APP_BASE_PATH:-/admin-staff}
+    ports:
+      - "127.0.0.1:5801:80"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
